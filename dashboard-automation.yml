@@ -1,0 +1,110 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import openpyxl
+from git import Repo
+import os
+import logging
+from datetime import datetime
+import sys
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente
+load_dotenv()
+
+# Configuração de logging
+logging.basicConfig(
+    filename='dashboard_automation.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    encoding='utf-8'
+)
+
+def carregar_dados_excel(caminho_arquivo):
+    """Carrega dados de uma planilha Excel usando pandas."""
+    try:
+        vendas = pd.read_excel(caminho_arquivo, sheet_name='Vendas')
+        clientes = pd.read_excel(caminho_arquivo, sheet_name='Clientes')
+        projetos = pd.read_excel(caminho_arquivo, sheet_name='Projetos')
+        kpis = pd.read_excel(caminho_arquivo, sheet_name='KPIs')
+        logging.info("Dados carregados com sucesso da planilha Excel.")
+        return vendas, clientes, projetos, kpis
+    except Exception as e:
+        logging.error(f"Erro ao carregar dados da Excel: {e}")
+        raise
+
+def processar_dados(vendas, clientes, projetos, kpis):
+    """Processa os dados: realiza agregações, cálculos e validações."""
+    try:
+        # Agregação: vendas totais por cliente
+        vendas_por_cliente = vendas.groupby('Cliente')['Valor'].sum().reset_index()
+
+        # Cálculo: média de projetos por cliente
+        projetos_por_cliente = projetos.groupby('Cliente')['ID_Projeto'].count().reset_index()
+        projetos_por_cliente.rename(columns={'ID_Projeto': 'Num_Projetos'}, inplace=True)
+
+        logging.info("Dados processados com sucesso.")
+        return vendas_por_cliente, projetos_por_cliente
+    except Exception as e:
+        logging.error(f"Erro ao processar dados: {e}")
+        raise
+
+def gerar_graficos(vendas_por_cliente, projetos_por_cliente, diretorio_saida):
+    """Gera gráficos automaticamente e salva como PNG."""
+    try:
+        os.makedirs(diretorio_saida, exist_ok=True)
+
+        # Gráfico de vendas por cliente
+        plt.figure(figsize=(10, 6))
+        plt.bar(vendas_por_cliente['Cliente'], vendas_por_cliente['Valor'])
+        plt.title('Vendas Totais por Cliente')
+        plt.xlabel('Cliente')
+        plt.ylabel('Valor')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig(os.path.join(diretorio_saida, 'vendas_por_cliente.png'))
+        plt.close()
+
+        logging.info("Gráficos gerados com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro ao gerar gráficos: {e}")
+        raise
+
+def versionar_com_git(repo_path, mensagem_commit):
+    """Realiza commit automático com timestamp e push para repositório remoto."""
+    try:
+        repo = Repo(repo_path)
+        repo.git.add('.')
+
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        repo.index.commit(f"{mensagem_commit} - {timestamp}")
+
+        origin = repo.remote(name='origin')
+        origin.push()
+
+        logging.info("Commit e push realizados com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro no versionamento Git: {e}")
+        raise
+
+def main():
+    """Função principal que orquestra todo o processo."""
+    try:
+        caminho_excel = os.getenv('EXCEL_FILE_PATH', 'dados.xlsx')
+        diretorio_saida = os.getenv('OUTPUT_DIR', 'output')
+        repo_path = os.getenv('GIT_REPO_PATH', '.')
+        mensagem_commit = os.getenv('MENSAGEM_COMMIT', 'Atualização automática do dashboard')
+
+        os.makedirs(diretorio_saida, exist_ok=True)
+
+        vendas, clientes, projetos, kpis = carregar_dados_excel(caminho_excel)
+        vendas_por_cliente, projetos_por_cliente = processar_dados(vendas, clientes, projetos, kpis)
+        gerar_graficos(vendas_por_cliente, projetos_por_cliente, diretorio_saida)
+        versionar_com_git(repo_path, mensagem_commit)
+
+        logging.info("Processo de automação do dashboard concluído com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro geral no processo: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
