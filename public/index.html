@@ -140,7 +140,11 @@
         </div>
         <div id="master-vote-status" class="vote-status-grid"></div>
         <div id="master-results" class="hidden">
-          <h2 class="section-title">Resultado</h2>
+          <div class="results-header">
+            <h2 class="section-title">Resultado</h2>
+            <button id="btn-copy-result" class="btn-copy">📸 Copiar para Jira</button>
+          </div>
+          <div id="capture-area">
           <div class="results-split">
             <div class="results-col col-dev">
               <h3 class="col-title">💻 Desenvolvedores</h3>
@@ -152,6 +156,7 @@
             </div>
           </div>
           <div id="master-summary"></div>
+          </div><!-- /capture-area -->
         </div>
       </div>
 
@@ -190,6 +195,7 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>

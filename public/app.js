@@ -98,6 +98,8 @@ function submitQaVote() {
 }
 
 // ─── Master controls ──────────────────────────────────────────────────────────
+document.getElementById('btn-copy-result').addEventListener('click', copyResultsAsImage);
+
 document.getElementById('btn-start').addEventListener('click', () => {
   socket.emit('start_round', { story: document.getElementById('master-story-input').value.trim() });
 });
@@ -419,3 +421,75 @@ function setStoryLabel(id, story) {
 function show(el) { el?.classList.remove('hidden'); }
 function hide(el) { el?.classList.add('hidden'); }
 function roleLabel(role) { return { developer: 'Dev', qa: 'QA', master: 'SM' }[role] || role; }
+
+// ─── Copy results as image for Jira ──────────────────────────────────────────
+async function copyResultsAsImage() {
+  const btn = document.getElementById('btn-copy-result');
+  btn.textContent = '⏳ Gerando...';
+  btn.disabled = true;
+
+  try {
+    const area = document.getElementById('capture-area');
+    const story = document.getElementById('master-story-display').textContent.trim();
+    const now = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+
+    // Draw header band with story + timestamp
+    const finalW = canvas.width;
+    const headerH = 72;
+    const final = document.createElement('canvas');
+    final.width = finalW;
+    final.height = canvas.height + headerH;
+
+    const ctx = final.getContext('2d');
+
+    // Header background (Jira blue gradient)
+    const grad = ctx.createLinearGradient(0, 0, finalW, 0);
+    grad.addColorStop(0, '#1a1035');
+    grad.addColorStop(1, '#cc092f');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, finalW, headerH);
+
+    // Header text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${headerH * 0.36}px Segoe UI, sans-serif`;
+    ctx.fillText('🃏 Planning Poker', 28, headerH * 0.48);
+
+    ctx.font = `${headerH * 0.26}px Segoe UI, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    const subtitle = story ? `${story}  ·  ${now}` : now;
+    ctx.fillText(subtitle, 28, headerH * 0.82);
+
+    // Paste captured content below header
+    ctx.drawImage(canvas, 0, headerH);
+
+    // Copy to clipboard
+    final.toBlob(async (blob) => {
+      let copied = false;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      } catch (_) {}
+
+      if (copied) {
+        btn.textContent = '✅ Copiado! Cole no Jira (Ctrl+V)';
+        setTimeout(() => { btn.textContent = '📸 Copiar para Jira'; btn.disabled = false; }, 3000);
+      } else {
+        // Fallback: download PNG
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `planning-poker-${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        btn.textContent = '📥 Baixado!';
+        setTimeout(() => { btn.textContent = '📸 Copiar para Jira'; btn.disabled = false; }, 2500);
+      }
+    }, 'image/png');
+  } catch (err) {
+    console.error(err);
+    btn.textContent = '❌ Erro — tente novamente';
+    btn.disabled = false;
+  }
+}

@@ -202,6 +202,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .stat-total .stat-value { color: var(--red); }
 .summary-divider { width: 1px; height: 44px; background: var(--border); }
 
+/* ── Jira copy ───────────────────────────────────────────────────────────── */
+.results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.results-header .section-title { margin-bottom: 0; }
+.btn-copy { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem 1.1rem; background: #0052cc; color: #fff; border: none; border-radius: 7px; font-size: .85rem; font-weight: 700; cursor: pointer; transition: all .2s; box-shadow: 0 2px 8px rgba(0,82,204,.3); }
+.btn-copy:hover { background: #0065ff; box-shadow: 0 4px 12px rgba(0,82,204,.4); }
+.btn-copy:disabled { opacity: .6; cursor: not-allowed; }
+#capture-area { background: var(--surface); border-radius: var(--radius); padding: .5rem; }
+
 /* ── Reveal section (dev/qa) ─────────────────────────────────────────────── */
 .reveal-section { margin-bottom: 1.5rem; }
 
