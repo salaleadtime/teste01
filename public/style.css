@@ -41,7 +41,7 @@ body {
 }
 
 /* Login */
-#screen-login {
+#screen-login.active {
   display: flex;
   align-items: center;
   justify-content: center;
