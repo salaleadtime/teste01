@@ -425,7 +425,7 @@ function renderSmAccessTab() {
 
   const squadSection = document.getElementById('squad-links-section');
   if (!squadSection) return;
-  const squads = currentSettings.squads || [];
+  const squads = (tempSettings || currentSettings).squads || [];
   if (!squads.length || !myRoomId) { squadSection.innerHTML = ''; return; }
   squadSection.innerHTML = `
     <p class="modal-hint" style="margin-top:1.2rem">🏷️ <strong>Links por Squad</strong> — o squad já vem pré-selecionado para o time:</p>
@@ -529,7 +529,7 @@ function resetQaInput() {
 function updateObserverView(participants, round) {
   setStoryLabel('observer-story', round.story);
   const waiting = document.getElementById('observer-waiting'); const voting = document.getElementById('observer-voting'); const reveal = document.getElementById('observer-reveal');
-  if (!round.active) { show(waiting); hide(voting); hide(reveal); return; }
+  if (!round.active) { show(waiting); hide(waiting); hide(reveal); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('observer-results-table', participants); }
   else {
