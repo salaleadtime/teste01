@@ -162,6 +162,7 @@
       <div id="master-story-display" class="story-name hidden"></div>
       <div class="header-actions">
         <button class="btn-settings" id="btn-open-settings">⚙️ Configurações</button>
+        <button class="btn-settings" id="btn-toggle-history">📋 História</button>
         <button class="btn-logout" id="master-logout">Sair</button>
       </div>
     </header>
@@ -200,6 +201,15 @@
             <div id="master-summary"></div>
           </div>
         </div>
+      </div>
+
+      <!-- HISTÓRIA (privado, salvo no navegador do SM) -->
+      <div id="master-history-panel" class="hidden history-panel">
+        <div class="history-panel-header">
+          <h2 class="section-title">📋 Histórico de Rodadas</h2>
+          <button id="btn-clear-history" class="btn-danger">🗑 Limpar tudo</button>
+        </div>
+        <div id="history-entries" class="history-entries"></div>
       </div>
 
       <div class="participants-panel">
@@ -256,19 +266,19 @@
 
         <!-- TAB: Acesso SM -->
         <div id="tab-access" class="tab-content">
-          <p class="modal-hint">Compartilhe o link abaixo <strong>apenas com pessoas de confiança</strong> que devem ter acesso de Scrum Master.</p>
+          <p class="modal-hint">👥 <strong>Link para participantes</strong> — compartilhe com Dev, QA e Observadores da sua sessão:</p>
           <div class="sm-link-box">
-            <input id="sm-link-input" type="text" readonly />
-            <button id="btn-copy-sm-link" class="btn-copy-sm">📋 Copiar</button>
+            <input id="public-link-input" type="text" readonly />
+            <button id="btn-copy-public-link" class="btn-copy-sm">📋 Copiar</button>
           </div>
           <div class="sm-link-info">
-            <p>🔓 <strong>Link normal</strong> (Dev, QA, Observador):</p>
+            <p>👑 <strong>Link Scrum Master</strong> — apenas para quem deve ter controle total:</p>
             <div class="sm-link-box" style="margin-top:.4rem">
-              <input id="public-link-input" type="text" readonly />
-              <button id="btn-copy-public-link" class="btn-copy-sm">📋 Copiar</button>
+              <input id="sm-link-input" type="text" readonly />
+              <button id="btn-copy-sm-link" class="btn-copy-sm">📋 Copiar</button>
             </div>
           </div>
-          <p class="modal-hint" style="margin-top:1rem;color:#d97706">⚠️ O link SM dá controle total da sessão. Não compartilhe com participantes comuns.</p>
+          <p class="modal-hint" style="margin-top:1rem;color:#d97706">⚠️ Cada SM tem sua própria sala isolada. Squads e configurações não são compartilhados entre SMs diferentes.</p>
         </div>
 
       </div>

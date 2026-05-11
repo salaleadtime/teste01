@@ -265,6 +265,23 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .add-card-form input { flex: 1; padding: .45rem .65rem; border: 1.5px solid var(--border); border-radius: 6px; font-size: .85rem; background: var(--surface2); color: var(--text); outline: none; }
 .add-card-form input:focus { border-color: var(--red); }
 
+/* ── History panel ───────────────────────────────────────────────────────────── */
+.history-panel { margin-bottom: 1.5rem; }
+.history-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem; }
+.history-panel-header .section-title { margin-bottom: 0; }
+.history-entries { display: flex; flex-direction: column; gap: .75rem; }
+.history-entry { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: var(--shadow); }
+.history-entry-header { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.history-date { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.history-story { font-weight: 700; font-size: .9rem; }
+.history-stats { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
+.history-stat-chip { font-size: .78rem; padding: .2rem .65rem; border-radius: 999px; font-weight: 600; }
+.hsc-dev { background: var(--dev-bg); color: var(--dev); }
+.hsc-qa  { background: var(--qa-bg);  color: var(--qa); }
+.hsc-total { background: var(--red-bg); color: var(--red); }
+.history-participants { font-size: .78rem; color: var(--muted); }
+.history-empty { color: var(--muted); font-size: .85rem; padding: 1rem 0; text-align: center; }
+
 /* ── Squad tag ───────────────────────────────────────────────────────────────── */
 .squad-tag { font-size: .72rem; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: .15rem .6rem; }
 
