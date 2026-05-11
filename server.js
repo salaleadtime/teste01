@@ -10,7 +10,7 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-const SM_TOKEN = process.env.SM_TOKEN || crypto.randomBytes(8).toString('hex');
+const SM_TOKEN = process.env.SM_TOKEN || 'ppSM2026Amanda';
 
 const DEFAULT_CARDS = ['1', '2', '3', '5', '8', '13', '21', '?'];
 const DEFAULT_HOUR_MAP = {
