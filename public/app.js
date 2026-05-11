@@ -313,17 +313,40 @@ function renderVoteGrid(participants, revealed) {
 }
 
 // ─── Split results (SM) ───────────────────────────────────────────────────────
+function calcMode(votes) {
+  // Returns the most frequent value; on tie, returns the lowest numeric value
+  const freq = {};
+  votes.forEach((v) => { freq[v] = (freq[v] || 0) + 1; });
+  let maxFreq = 0;
+  let mode = null;
+  for (const [val, count] of Object.entries(freq)) {
+    const wins = count > maxFreq || (count === maxFreq && parseFloat(val) < parseFloat(mode));
+    if (wins) { maxFreq = count; mode = val; }
+  }
+  return { mode, count: maxFreq, total: votes.length };
+}
+
 function renderSplitResults(participants) {
   const devs = participants.filter((p) => p.role === 'developer');
   const qas  = participants.filter((p) => p.role === 'qa');
 
+  // Find predominant dev vote
+  const devVotes = devs.filter((p) => p.vote && p.vote !== '?').map((p) => p.vote);
+  const { mode: modeVote, count: modeCount } = devVotes.length ? calcMode(devVotes) : {};
+
   const devRows = devs.map((p) => {
     const hours = p.vote ? (currentSettings.hourMap[p.vote] || '') : '';
+    const isPredominant = p.vote && p.vote === modeVote;
     const chip = p.vote
-      ? `<span class="vote-chip developer"><span class="chip-points">${p.vote}</span>${hours ? `<span class="chip-hours">${hours}</span>` : ''}</span>`
+      ? `<span class="vote-chip developer ${isPredominant ? 'vote-winner' : ''}"><span class="chip-points">${p.vote}</span>${hours ? `<span class="chip-hours">${hours}</span>` : ''}</span>`
       : `<span style="color:var(--muted)">—</span>`;
-    return `<tr><td>${p.name}</td><td>${chip}</td></tr>`;
+    const tag = isPredominant ? `<span class="winner-tag">✓</span>` : '';
+    return `<tr><td>${p.name}${tag}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum desenvolvedor</td></tr>`;
+
+  // QA average
+  const qaHours = qas.filter((p) => p.vote).map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
+  const avgQaH = qaHours.length ? (qaHours.reduce((a, b) => a + b, 0) / qaHours.length) : null;
 
   const qaRows = qas.map((p) => {
     const chip = p.vote
@@ -332,10 +355,17 @@ function renderSplitResults(participants) {
     return `<tr><td>${p.name}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum QA</td></tr>`;
 
+  const devFooter = modeVote
+    ? `<tfoot><tr><td colspan="2" class="table-footer">Voto predominante: <strong>${modeVote}</strong> (${modeCount}/${devVotes.length} devs) = <strong>${currentSettings.hourMap[modeVote] || '?'}</strong></td></tr></tfoot>`
+    : '';
+  const qaFooter = avgQaH !== null
+    ? `<tfoot><tr><td colspan="2" class="table-footer">Média QA: <strong>${avgQaH % 1 === 0 ? avgQaH : avgQaH.toFixed(1)}h</strong></td></tr></tfoot>`
+    : '';
+
   document.getElementById('master-dev-results').innerHTML =
-    `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody></table>`;
+    `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
   document.getElementById('master-qa-results').innerHTML =
-    `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody></table>`;
+    `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
 }
 
 // ─── Simple table (dev/qa screens) ───────────────────────────────────────────
@@ -358,31 +388,32 @@ function renderSummary(participants) {
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
   const stats = [];
 
+  let devHoursNum = 0;
+
   if (devVoters.length) {
-    const pts = devVoters.map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
-    const avgPts = pts.length ? (pts.reduce((a, b) => a + b, 0) / pts.length).toFixed(1) : '—';
-    const devH = devVoters.map((p) => parseFloat(currentSettings.hourMap[p.vote] || '0') || 0);
-    const totalDevH = devH.reduce((a, b) => a + b, 0);
-    stats.push(`<div class="summary-stat"><div class="stat-value">${avgPts}</div><div class="stat-label">Média Pontos Dev</div></div>`);
-    if (totalDevH > 0) stats.push(`<div class="summary-stat"><div class="stat-value">${totalDevH}h</div><div class="stat-label">Total Horas Dev</div></div>`);
+    // Use MODE (most frequent vote) — not average
+    const { mode: modeVote, count: modeCount } = calcMode(devVoters.map((p) => p.vote));
+    const modeHoursStr = currentSettings.hourMap[modeVote] || '';
+    devHoursNum = parseFloat(modeHoursStr) || 0;
+
+    stats.push(`<div class="summary-stat"><div class="stat-value">${modeVote}</div><div class="stat-label">Voto Predominante Dev</div></div>`);
+    if (modeHoursStr) stats.push(`<div class="summary-stat"><div class="stat-value">${modeHoursStr}</div><div class="stat-label">Horas Dev (${modeCount}/${devVoters.length} devs)</div></div>`);
     stats.push('<div class="summary-divider"></div>');
   }
 
   if (qaVoters.length) {
+    // Use AVERAGE — not sum
     const qaH = qaVoters.map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
-    const totalQaH = qaH.reduce((a, b) => a + b, 0);
-    const avgQaH = qaH.length ? (totalQaH / qaH.length).toFixed(1) : '—';
-    stats.push(`<div class="summary-stat stat-qa"><div class="stat-value">${avgQaH}h</div><div class="stat-label">Média Horas QA</div></div>`);
-    stats.push(`<div class="summary-stat stat-qa"><div class="stat-value">${totalQaH}h</div><div class="stat-label">Total QA</div></div>`);
+    const avgQaH = qaH.length ? qaH.reduce((a, b) => a + b, 0) / qaH.length : 0;
+    const avgQaDisplay = avgQaH % 1 === 0 ? `${avgQaH}h` : `${avgQaH.toFixed(1)}h`;
 
-    if (devVoters.length) {
-      const devH = devVoters.map((p) => parseFloat(currentSettings.hourMap[p.vote] || '0') || 0);
-      const totalDevH = devH.reduce((a, b) => a + b, 0);
-      const grand = totalDevH + totalQaH;
-      if (grand > 0) {
-        stats.push('<div class="summary-divider"></div>');
-        stats.push(`<div class="summary-stat stat-total"><div class="stat-value">${grand}h</div><div class="stat-label">Total Geral Dev+QA</div></div>`);
-      }
+    stats.push(`<div class="summary-stat stat-qa"><div class="stat-value">${avgQaDisplay}</div><div class="stat-label">Média Horas QA (${qaVoters.length} QAs)</div></div>`);
+
+    if (devVoters.length && (devHoursNum + avgQaH) > 0) {
+      const grand = devHoursNum + avgQaH;
+      const grandDisplay = grand % 1 === 0 ? `${grand}h` : `${grand.toFixed(1)}h`;
+      stats.push('<div class="summary-divider"></div>');
+      stats.push(`<div class="summary-stat stat-total"><div class="stat-value">${grandDisplay}</div><div class="stat-label">Total Geral Dev+QA</div></div>`);
     }
   }
 

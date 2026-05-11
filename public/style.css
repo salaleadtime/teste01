@@ -192,6 +192,10 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .vote-chip.qa  { background: var(--qa-bg); color: var(--qa); }
 .chip-points { font-size: 1rem; line-height: 1.2; }
 .chip-hours  { font-size: .62rem; opacity: .75; }
+.vote-chip.vote-winner { background: var(--dev); color: #fff; }
+.vote-chip.vote-winner .chip-hours { opacity: .85; }
+.winner-tag { display: inline-block; margin-left: .3rem; font-size: .7rem; font-weight: 800; color: var(--dev); }
+.table-footer td { font-size: .82rem; color: var(--muted); padding-top: .75rem !important; border-top: 2px solid var(--border); border-bottom: none !important; }
 
 /* ── Summary ─────────────────────────────────────────────────────────────── */
 .summary-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; box-shadow: var(--shadow); display: flex; gap: 2rem; flex-wrap: wrap; align-items: center; }
