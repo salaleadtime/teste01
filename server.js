@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,90 +19,126 @@ const DEFAULT_HOUR_MAP = {
   '22': '1 Sprint', '?': '?',
 };
 
-const state = {
-  participants: {},
-  round: { active: false, story: '', revealed: false },
-  settings: { cards: [...DEFAULT_CARDS], hourMap: { ...DEFAULT_HOUR_MAP }, squads: [] },
-};
+// Each SM has their own isolated room keyed by roomId (generated on client, stored in localStorage)
+const rooms = {};
 
-function broadcastState() {
-  const participants = Object.values(state.participants).map((p) => ({
+function ensureRoom(roomId) {
+  if (!rooms[roomId]) {
+    rooms[roomId] = {
+      participants: {},
+      round: { active: false, story: '', revealed: false },
+      settings: { cards: [...DEFAULT_CARDS], hourMap: { ...DEFAULT_HOUR_MAP }, squads: [] },
+    };
+  }
+  return rooms[roomId];
+}
+
+function broadcastRoom(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const participants = Object.values(room.participants).map((p) => ({
     id: p.id, name: p.name, role: p.role, squad: p.squad || null,
     hasVoted: p.vote !== null,
-    vote: state.round.revealed ? p.vote : null,
+    vote: room.round.revealed ? p.vote : null,
   }));
-
   const voters = participants.filter((p) => p.role !== 'master' && p.role !== 'observer');
   const allVoted = voters.length > 0 && voters.every((p) => p.hasVoted);
-
-  io.emit('state_update', { participants, round: state.round, settings: state.settings, allVoted });
+  io.to(roomId).emit('state_update', { participants, round: room.round, settings: room.settings, allVoted });
 }
 
 io.on('connection', (socket) => {
-  socket.on('join', ({ name, role, squad, smToken }) => {
-    if (role === 'master' && smToken !== SM_TOKEN) {
-      socket.emit('join_error', 'Token de Scrum Master inválido. Use o link correto.');
-      return;
+  socket.on('join', ({ name, role, squad, smToken, roomId }) => {
+    if (role === 'master') {
+      if (smToken !== SM_TOKEN) {
+        socket.emit('join_error', 'Token de Scrum Master inválido. Use o link correto.');
+        return;
+      }
+      // SM creates or restores their own room (roomId comes from SM's localStorage)
+      const rId = roomId || socket.id;
+      const room = ensureRoom(rId);
+      socket.myRoomId = rId;
+      socket.join(rId);
+      room.participants[socket.id] = { id: socket.id, name: name.trim(), role: 'master', squad: null, vote: null };
+      socket.emit('sm_ready', { token: SM_TOKEN, roomId: rId });
+    } else {
+      // Participants must provide a roomId from the SM's shared link
+      if (!roomId || !rooms[roomId]) {
+        socket.emit('join_error', 'Sala não encontrada. Peça o link correto ao Scrum Master.');
+        return;
+      }
+      socket.myRoomId = roomId;
+      socket.join(roomId);
+      rooms[roomId].participants[socket.id] = { id: socket.id, name: name.trim(), role, squad: squad || null, vote: null };
     }
-    state.participants[socket.id] = {
-      id: socket.id, name: name.trim(), role, squad: squad || null, vote: null,
-    };
-    if (role === 'master') socket.emit('sm_token_info', { token: SM_TOKEN });
-    broadcastState();
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('vote', ({ value }) => {
-    const p = state.participants[socket.id];
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
     if (!p || p.role === 'master' || p.role === 'observer') return;
-    if (!state.round.active || state.round.revealed) return;
+    if (!room.round.active || room.round.revealed) return;
     p.vote = value;
-    broadcastState();
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('start_round', ({ story }) => {
-    const p = state.participants[socket.id];
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
     if (!p || p.role !== 'master') return;
-    state.round = { active: true, story: story || '', revealed: false };
-    Object.values(state.participants).forEach((x) => { x.vote = null; });
-    broadcastState();
+    room.round = { active: true, story: story || '', revealed: false };
+    Object.values(room.participants).forEach((x) => { x.vote = null; });
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('reveal', () => {
-    const p = state.participants[socket.id];
-    if (!p || p.role !== 'master' || !state.round.active) return;
-    state.round.revealed = true;
-    broadcastState();
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
+    if (!p || p.role !== 'master' || !room.round.active) return;
+    room.round.revealed = true;
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('reset', () => {
-    const p = state.participants[socket.id];
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
     if (!p || p.role !== 'master') return;
-    state.round = { active: false, story: '', revealed: false };
-    Object.values(state.participants).forEach((x) => { x.vote = null; });
-    broadcastState();
+    room.round = { active: false, story: '', revealed: false };
+    Object.values(room.participants).forEach((x) => { x.vote = null; });
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('update_settings', ({ cards, hourMap, squads }) => {
-    const p = state.participants[socket.id];
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
     if (!p || p.role !== 'master') return;
-    state.settings = { cards, hourMap, squads: squads || [] };
-    Object.values(state.participants).forEach((x) => { x.vote = null; });
-    broadcastState();
+    room.settings = { cards, hourMap, squads: squads || [] };
+    Object.values(room.participants).forEach((x) => { x.vote = null; });
+    broadcastRoom(socket.myRoomId);
   });
 
   socket.on('kick', ({ targetId }) => {
-    const p = state.participants[socket.id];
+    const room = rooms[socket.myRoomId];
+    if (!room) return;
+    const p = room.participants[socket.id];
     if (!p || p.role !== 'master') return;
-    if (state.participants[targetId]) {
+    if (room.participants[targetId]) {
       io.to(targetId).emit('force_logout');
-      delete state.participants[targetId];
-      broadcastState();
+      delete room.participants[targetId];
+      broadcastRoom(socket.myRoomId);
     }
   });
 
   socket.on('disconnect', () => {
-    delete state.participants[socket.id];
-    broadcastState();
+    const rId = socket.myRoomId;
+    if (!rId || !rooms[rId]) return;
+    delete rooms[rId].participants[socket.id];
+    broadcastRoom(rId);
   });
 });
 
