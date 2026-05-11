@@ -40,6 +40,7 @@ let _kickListenerRef = null;
 const urlParams  = new URLSearchParams(window.location.search);
 const urlSmToken = urlParams.get('sm');
 const urlRoomId  = urlParams.get('room');
+const urlSquad   = urlParams.get('squad');
 
 if (urlSmToken) document.querySelector('.role-btn[data-role="master"]')?.classList.remove('hidden');
 
@@ -100,7 +101,7 @@ async function doJoin() {
   }
 
   const squadEl = document.getElementById('squad-select');
-  mySquad  = (squadEl && squadEl.offsetParent !== null && squadEl.value) ? squadEl.value : null;
+  mySquad = urlSquad || ((squadEl && squadEl.offsetParent !== null && squadEl.value) ? squadEl.value : null);
   myName   = name; myRole = selectedRole;
   myRoomId = selectedRole === 'master' ? getOrCreateSmRoom() : urlRoomId;
   errEl.classList.add('hidden');
@@ -421,6 +422,24 @@ function renderSmAccessTab() {
   const smInput  = document.getElementById('sm-link-input');
   if (pubInput) pubInput.value = participantLink;
   if (smInput)  smInput.value  = smLink;
+
+  const squadSection = document.getElementById('squad-links-section');
+  if (!squadSection) return;
+  const squads = currentSettings.squads || [];
+  if (!squads.length || !myRoomId) { squadSection.innerHTML = ''; return; }
+  squadSection.innerHTML = `
+    <p class="modal-hint" style="margin-top:1.2rem">🏷️ <strong>Links por Squad</strong> — o squad já vem pré-selecionado para o time:</p>
+    ${squads.map((sq, i) => `
+      <div class="sm-link-box" style="margin-top:.4rem;align-items:center">
+        <span class="squad-tag" style="min-width:fit-content">${sq}</span>
+        <input id="squad-link-${i}" type="text" readonly value="${base}?room=${myRoomId}&squad=${encodeURIComponent(sq)}" />
+        <button id="btn-copy-squad-${i}" class="btn-copy-sm">📋 Copiar</button>
+      </div>`).join('')}`;
+  squads.forEach((sq, i) => {
+    document.getElementById(`btn-copy-squad-${i}`)?.addEventListener('click', () => {
+      copyText(document.getElementById(`squad-link-${i}`)?.value, `btn-copy-squad-${i}`);
+    });
+  });
 }
 
 document.getElementById('btn-copy-public-link')?.addEventListener('click', () => copyText(document.getElementById('public-link-input')?.value, 'btn-copy-public-link'));
@@ -463,7 +482,12 @@ function updateSquadSelector() {
   if (squads.length > 0) {
     sel.innerHTML = '<option value="">— Selecione seu squad —</option>';
     squads.forEach((sq) => { const o = document.createElement('option'); o.value = sq; o.textContent = sq; sel.appendChild(o); });
-    group.style.display = '';
+    if (urlSquad && squads.includes(urlSquad)) {
+      sel.value = urlSquad;
+      group.style.display = 'none';
+    } else {
+      group.style.display = '';
+    }
   } else { group.style.display = 'none'; }
 }
 
