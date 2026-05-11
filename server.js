@@ -10,7 +10,7 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-const SM_TOKEN = process.env.SM_TOKEN || 'ppSM2026Amanda';
+const SM_TOKEN = process.env.SM_TOKEN || 'SalaAgilidade-SM';
 
 const DEFAULT_CARDS = ['1', '2', '3', '5', '8', '13', '21', '?'];
 const DEFAULT_HOUR_MAP = {
