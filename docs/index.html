@@ -28,6 +28,10 @@
           </select>
         </div>
         <div class="form-group">
+          <label>Avatar</label>
+          <div id="avatar-picker" class="avatar-picker"></div>
+        </div>
+        <div class="form-group">
           <label>Papel</label>
           <div class="role-selector">
             <button class="role-btn active" data-role="developer">
@@ -47,10 +51,6 @@
               <div><span class="role-label">Scrum Master</span><span class="role-desc">Visão geral e controle da sessão</span></div>
             </button>
           </div>
-        </div>
-        <div class="form-group">
-          <label>Avatar</label>
-          <div id="avatar-picker" class="avatar-picker"></div>
         </div>
         <button id="btn-join" class="btn-primary">Entrar na sessão</button>
         <p id="login-error" class="error hidden"></p>
@@ -272,6 +272,7 @@
 
         <!-- TAB: Acesso SM -->
         <div id="tab-access" class="tab-content">
+          <div id="squad-links-section"></div>
           <p class="modal-hint">👥 <strong>Link para participantes</strong> — compartilhe com Dev, QA e Observadores da sua sessão:</p>
           <div class="sm-link-box">
             <input id="public-link-input" type="text" readonly />

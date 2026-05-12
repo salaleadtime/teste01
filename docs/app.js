@@ -16,11 +16,11 @@ const SM_TOKEN       = 'SalaAgilidade-SM';
 const CLIENT_ID_KEY  = 'pp_client_id';
 const SM_ROOM_KEY    = 'pp_sm_room';
 const SESSION_KEY    = 'pp_session';
+const AVATAR_KEY     = 'pp_avatar';
+const AVATARS = ['🦊','🐱','🐶','🦁','🐯','🐸','🤖','👾','🦄','🐼','🚀','⭐','🔥','💎','🧙','🦋'];
 
 const DEFAULT_CARDS    = ['1', '2', '3', '5', '8', '13', '21', '?'];
 const DEFAULT_HOUR_MAP = { '1':'2h','2':'4h','3':'8h','5':'16h','8':'24h','13':'60h','21':'80h','?':'?' };
-const AVATARS   = ['🦊','🐱','🐶','🦁','🐯','🐸','🤖','👾','🦄','🐼','🚀','⭐','🔥','💎','🧙','🦋'];
-const AVATAR_KEY = 'pp_avatar';
 
 // Unique client ID (replaces socket.id)
 function getOrCreateClientId() {
@@ -30,29 +30,9 @@ function getOrCreateClientId() {
 }
 const clientId = getOrCreateClientId();
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-let myAvatar = localStorage.getItem(AVATAR_KEY) || AVATARS[0];
-function initAvatarPicker() {
-  const picker = document.getElementById('avatar-picker');
-  if (!picker) return;
-  AVATARS.forEach((emoji) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'avatar-opt' + (myAvatar === emoji ? ' av-selected' : '');
-    btn.textContent = emoji;
-    btn.addEventListener('click', () => {
-      myAvatar = emoji;
-      localStorage.setItem(AVATAR_KEY, emoji);
-      picker.querySelectorAll('.avatar-opt').forEach((b) => b.classList.remove('av-selected'));
-      btn.classList.add('av-selected');
-    });
-    picker.appendChild(btn);
-  });
-}
-document.addEventListener('DOMContentLoaded', initAvatarPicker);
-
 // ─── State ────────────────────────────────────────────────────────────────────
 let myRole = null, myName = null, myVote = null, mySquad = null, myRoomId = null;
+let myAvatar = localStorage.getItem(AVATAR_KEY) || AVATARS[0];
 let currentSettings = { cards: [...DEFAULT_CARDS], hourMap: { ...DEFAULT_HOUR_MAP }, squads: [] };
 let tempSettings = null;
 let _latestParticipants = [];
@@ -110,6 +90,25 @@ document.querySelectorAll('.role-btn').forEach((btn) => {
 });
 document.getElementById('btn-join').addEventListener('click', doJoin);
 document.getElementById('input-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
+
+function initAvatarPicker() {
+  const picker = document.getElementById('avatar-picker');
+  if (!picker) return;
+  AVATARS.forEach((emoji) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'avatar-opt' + (myAvatar === emoji ? ' av-selected' : '');
+    btn.textContent = emoji;
+    btn.addEventListener('click', () => {
+      myAvatar = emoji;
+      localStorage.setItem(AVATAR_KEY, emoji);
+      picker.querySelectorAll('.avatar-opt').forEach((b) => b.classList.remove('av-selected'));
+      btn.classList.add('av-selected');
+    });
+    picker.appendChild(btn);
+  });
+}
+document.addEventListener('DOMContentLoaded', initAvatarPicker);
 
 async function doJoin() {
   const name  = document.getElementById('input-name').value.trim();
@@ -360,14 +359,14 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 function openSettings() {
   tempSettings = { cards: [...currentSettings.cards], hourMap: { ...currentSettings.hourMap }, squads: [...(currentSettings.squads || [])] };
+  const squadBadge = document.getElementById('modal-squad-badge');
+  if (squadBadge) { if (mySquad) { squadBadge.textContent = mySquad; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   document.querySelector('.tab-btn[data-tab="tab-cards"]')?.classList.add('active');
   document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active-tab'));
   document.getElementById('tab-cards')?.classList.add('active-tab');
   document.getElementById('settings-footer')?.classList.remove('hidden');
   renderSettingsRows(); renderSquadsTab();
-  const squadBadge = document.getElementById('modal-squad-badge');
-  if (squadBadge) { if (mySquad) { squadBadge.textContent = mySquad; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); tempSettings = null; }
@@ -584,7 +583,7 @@ function updateMasterView(participants, round, allVoted) {
     else if (round.revealed && p.vote !== null) pill = `<span class="vs-pill ${p.role === 'qa' ? 'val-qa' : 'val-dev'}">${p.vote}</span>`;
     else if (p.hasVoted) pill = `<span class="vs-pill voted">Votou ✓</span>`;
     else pill = `<span class="vs-pill pending">Aguardando…</span>`;
-    card.innerHTML = `<div class="vs-name">${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
+    card.innerHTML = `<div class="vs-name">${p.avatar ? p.avatar + ' ' : ''}${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
     grid.appendChild(card);
   });
   if (round.revealed) { show(results); renderSplitResults(participants); renderSummary(participants); }

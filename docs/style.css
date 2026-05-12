@@ -315,7 +315,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .btn-kick { padding: .3rem .75rem; background: transparent; border: 1.5px solid var(--border); color: var(--muted); border-radius: 6px; font-size: .78rem; cursor: pointer; font-weight: 600; transition: all .2s; white-space: nowrap; }
 .btn-kick:hover { border-color: var(--danger); color: var(--danger); background: rgba(220,38,38,.05); }
 
-/* ── Avatar picker ───────────────────────────────────────────────────────── */
+/* ── Avatar picker ───────────────────────────────────────────────────────────── */
 .avatar-picker { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; padding: .25rem 0; }
 .avatar-opt { font-size: 1.4rem; width: 42px; height: 42px; border-radius: 10px; border: 2px solid var(--border); background: var(--surface2); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
 .avatar-opt:hover { border-color: var(--red); transform: scale(1.12); }
