@@ -75,7 +75,10 @@
         <p>Aguardando o Scrum Master iniciar uma rodada...</p>
       </div>
       <div id="dev-voting" class="hidden">
-        <p class="voting-hint">Selecione sua estimativa:</p>
+        <div class="voting-header">
+          <p class="voting-hint">Selecione sua estimativa:</p>
+          <div id="dev-timer" class="round-timer hidden"></div>
+        </div>
         <div class="fibonacci-cards" id="fibonacci-cards"></div>
         <p id="dev-voted-msg" class="voted-msg hidden">✅ Voto registrado! Aguardando os demais...</p>
       </div>
@@ -107,7 +110,10 @@
         <p>Aguardando o Scrum Master iniciar uma rodada...</p>
       </div>
       <div id="qa-voting" class="hidden">
-        <p class="voting-hint">Informe sua estimativa em horas:</p>
+        <div class="voting-header">
+          <p class="voting-hint">Informe sua estimativa em horas:</p>
+          <div id="qa-timer" class="round-timer hidden"></div>
+        </div>
         <div class="qa-input-group">
           <input id="qa-hours-input" type="number" min="0.5" step="0.5" placeholder="Ex: 4" />
           <span class="hours-label">horas</span>
@@ -142,7 +148,10 @@
         <p>Aguardando o Scrum Master iniciar uma rodada...</p>
       </div>
       <div id="observer-voting" class="hidden">
-        <p class="voting-hint">Votação em andamento...</p>
+        <div class="voting-header">
+          <p class="voting-hint">Votação em andamento...</p>
+          <div id="observer-timer" class="round-timer hidden"></div>
+        </div>
         <div id="observer-vote-status" class="vote-status-grid"></div>
       </div>
       <div id="observer-reveal" class="hidden reveal-section">
@@ -175,7 +184,7 @@
         <h2>Nova Rodada</h2>
         <div class="form-group">
           <label>Nome da história / tarefa (opcional)</label>
-          <input id="master-story-input" type="text" placeholder="Ex: US-42 — Tela de login" maxlength="80" />
+          <input id="master-story-input" type="text" placeholder="Ex: US-42 — Tela de login" maxlength="200" />
         </div>
         <button id="btn-start" class="btn-primary">▶ Iniciar Rodada</button>
       </div>
@@ -184,6 +193,7 @@
         <div class="master-action-bar">
           <button id="btn-reveal" class="btn-reveal" disabled>👁 Revelar Votos</button>
           <button id="btn-reset" class="btn-danger">🔄 Nova Rodada</button>
+          <div id="master-timer" class="round-timer hidden"></div>
         </div>
         <div id="master-vote-status" class="vote-status-grid"></div>
         <div id="master-results" class="hidden">

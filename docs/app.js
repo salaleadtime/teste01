@@ -39,6 +39,8 @@ let _latestParticipants = [];
 let _lastRevealedState = false;
 let _roomListenerRef = null;
 let _kickListenerRef = null;
+let _timerInterval = null;
+let _currentTimerId = null;
 
 const urlParams  = new URLSearchParams(window.location.search);
 const urlSmToken = urlParams.get('sm');
@@ -264,7 +266,7 @@ function submitQaVote() {
 document.getElementById('btn-copy-result').addEventListener('click', copyResultsAsImage);
 document.getElementById('btn-start').addEventListener('click', async () => {
   const story = document.getElementById('master-story-input').value.trim();
-  await db.ref(`rooms/${myRoomId}/round`).set({ active: true, story: story || '', revealed: false });
+  await db.ref(`rooms/${myRoomId}/round`).set({ active: true, story: story || '', revealed: false, startedAt: Date.now() });
   await clearVotes();
 });
 document.getElementById('btn-reveal').addEventListener('click', () => {
@@ -360,7 +362,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 function openSettings() {
   tempSettings = { cards: [...currentSettings.cards], hourMap: { ...currentSettings.hourMap }, squads: [...(currentSettings.squads || [])] };
   const squadBadge = document.getElementById('modal-squad-badge');
-  if (squadBadge) { if (mySquad) { squadBadge.textContent = mySquad; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
+  if (squadBadge) { if (mySquad) { squadBadge.textContent = `Squad ${mySquad}`; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   document.querySelector('.tab-btn[data-tab="tab-cards"]')?.classList.add('active');
   document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active-tab'));
@@ -428,7 +430,7 @@ function renderParticipantsManage() {
   const list = document.createElement('div'); list.className = 'manage-list';
   others.forEach((p) => {
     const item = document.createElement('div'); item.className = 'manage-item';
-    item.innerHTML = `<div class="manage-item-info"><span class="p-dot ${p.role}"></span><strong>${p.name}</strong><span class="badge badge-${p.role}">${roleLabel(p.role)}</span>${p.squad ? `<span class="squad-tag">${p.squad}</span>` : ''}</div><button class="btn-kick" data-id="${p.id}">Remover</button>`;
+    item.innerHTML = `<div class="manage-item-info"><span class="p-dot ${p.role}"></span><strong>${p.name}</strong><span class="badge badge-${p.role}">${roleLabel(p.role)}</span>${p.squad ? `<span class="squad-tag">Squad ${p.squad}</span>` : ''}</div><button class="btn-kick" data-id="${p.id}">Remover</button>`;
     item.querySelector('.btn-kick').addEventListener('click', async () => {
       const targetId = p.id;
       await db.ref(`rooms/${myRoomId}/kicked/${targetId}`).set(true);
@@ -516,14 +518,34 @@ function updateSquadSelector() {
   } else { group.style.display = 'none'; }
 }
 
+// ─── Round timer ──────────────────────────────────────────────────────────────
+function startRoundTimer(startedAt, timerId) {
+  if (_timerInterval && _currentTimerId === timerId) return;
+  stopRoundTimer();
+  _currentTimerId = timerId;
+  const el = document.getElementById(timerId);
+  if (!el) return;
+  el.classList.remove('hidden');
+  function tick() {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    el.textContent = `⏱ ${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+  }
+  tick();
+  _timerInterval = setInterval(tick, 1000);
+}
+function stopRoundTimer() {
+  if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+  if (_currentTimerId) { document.getElementById(_currentTimerId)?.classList.add('hidden'); _currentTimerId = null; }
+}
+
 // ─── Views ────────────────────────────────────────────────────────────────────
 function updateDevView(participants, round) {
   setStoryLabel('developer-story', round.story);
   const waiting = document.getElementById('dev-waiting'); const voting = document.getElementById('dev-voting'); const reveal = document.getElementById('dev-reveal');
-  if (!round.active) { show(waiting); hide(voting); hide(reveal); resetDevCards(); return; }
+  if (!round.active) { show(waiting); hide(voting); hide(reveal); resetDevCards(); stopRoundTimer(); return; }
   hide(waiting);
-  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('dev-results-table', participants); }
-  else { hide(reveal); show(voting); renderFibCards(); }
+  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('dev-results-table', participants); stopRoundTimer(); }
+  else { hide(reveal); show(voting); renderFibCards(); if (round.startedAt) startRoundTimer(round.startedAt, 'dev-timer'); }
 }
 function renderFibCards() {
   const container = document.getElementById('fibonacci-cards'); container.innerHTML = '';
@@ -540,10 +562,10 @@ function resetDevCards() { myVote = null; renderFibCards(); document.getElementB
 function updateQaView(participants, round) {
   setStoryLabel('qa-story', round.story);
   const waiting = document.getElementById('qa-waiting'); const voting = document.getElementById('qa-voting'); const reveal = document.getElementById('qa-reveal');
-  if (!round.active) { show(waiting); hide(voting); hide(reveal); resetQaInput(); return; }
+  if (!round.active) { show(waiting); hide(voting); hide(reveal); resetQaInput(); stopRoundTimer(); return; }
   hide(waiting);
-  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('qa-results-table', participants); }
-  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); }
+  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('qa-results-table', participants); stopRoundTimer(); }
+  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); if (round.startedAt) startRoundTimer(round.startedAt, 'qa-timer'); }
 }
 function resetQaInput() {
   myVote = null;
@@ -554,11 +576,11 @@ function resetQaInput() {
 function updateObserverView(participants, round) {
   setStoryLabel('observer-story', round.story);
   const waiting = document.getElementById('observer-waiting'); const voting = document.getElementById('observer-voting'); const reveal = document.getElementById('observer-reveal');
-  if (!round.active) { show(waiting); hide(voting); hide(reveal); return; }
+  if (!round.active) { show(waiting); hide(voting); hide(reveal); stopRoundTimer(); return; }
   hide(waiting);
-  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('observer-results-table', participants); }
+  if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('observer-results-table', participants); stopRoundTimer(); }
   else {
-    hide(reveal); show(voting);
+    hide(reveal); show(voting); if (round.startedAt) startRoundTimer(round.startedAt, 'observer-timer');
     const grid = document.getElementById('observer-vote-status'); if (!grid) return; grid.innerHTML = '';
     participants.filter((p) => p.role !== 'master' && p.role !== 'observer').forEach((p) => {
       const card = document.createElement('div'); card.className = 'vote-status-card';
@@ -572,8 +594,9 @@ function updateObserverView(participants, round) {
 function updateMasterView(participants, round, allVoted) {
   setStoryLabel('master-story-display', round.story);
   const setup = document.getElementById('master-setup'); const active = document.getElementById('master-active'); const results = document.getElementById('master-results');
-  if (!round.active) { show(setup); hide(active); document.getElementById('master-story-input').value = ''; return; }
+  if (!round.active) { show(setup); hide(active); document.getElementById('master-story-input').value = ''; stopRoundTimer(); return; }
   hide(setup); show(active);
+  if (round.startedAt) startRoundTimer(round.startedAt, 'master-timer');
   document.getElementById('btn-reveal').disabled = !allVoted;
   const grid = document.getElementById('master-vote-status'); grid.innerHTML = '';
   participants.filter((p) => p.role !== 'master').forEach((p) => {
@@ -586,7 +609,7 @@ function updateMasterView(participants, round, allVoted) {
     card.innerHTML = `<div class="vs-name">${p.avatar ? p.avatar + ' ' : ''}${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
     grid.appendChild(card);
   });
-  if (round.revealed) { show(results); renderSplitResults(participants); renderSummary(participants); }
+  if (round.revealed) { show(results); renderSplitResults(participants); renderSummary(participants); stopRoundTimer(); }
   else hide(results);
 }
 
@@ -659,7 +682,7 @@ function updateParticipants(participants, containerId) {
   const list = document.createElement('div'); list.className = 'participant-list';
   participants.forEach((p) => {
     const chip = document.createElement('div'); chip.className = 'participant-chip';
-    chip.innerHTML = `<span class="p-dot ${p.role}"></span>${p.avatar ? `<span style="font-size:.9rem">${p.avatar}</span>` : ''}<span>${p.name}</span>${p.squad ? `<span class="squad-tag">${p.squad}</span>` : ''}<span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
+    chip.innerHTML = `<span class="p-dot ${p.role}"></span>${p.avatar ? `<span style="font-size:.9rem">${p.avatar}</span>` : ''}<span>${p.name}</span><span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
     list.appendChild(chip);
   });
   el.appendChild(list);
@@ -672,7 +695,7 @@ function showScreen(role) {
   const nameEl = document.getElementById(`${role}-name`);
   if (nameEl) nameEl.textContent = myName;
   const squadTagEl = document.getElementById(`${role}-squad-tag`);
-  if (squadTagEl) { if (mySquad) { squadTagEl.textContent = mySquad; squadTagEl.classList.remove('hidden'); } else squadTagEl.classList.add('hidden'); }
+  if (squadTagEl) { if (mySquad) { squadTagEl.textContent = `Squad ${mySquad}`; squadTagEl.classList.remove('hidden'); } else squadTagEl.classList.add('hidden'); }
 }
 function setStoryLabel(id, story) {
   const el = document.getElementById(id); if (!el) return;
