@@ -48,6 +48,10 @@
             </button>
           </div>
         </div>
+        <div class="form-group">
+          <label>Avatar</label>
+          <div id="avatar-picker" class="avatar-picker"></div>
+        </div>
         <button id="btn-join" class="btn-primary">Entrar na sessão</button>
         <p id="login-error" class="error hidden"></p>
       </div>
@@ -223,7 +227,10 @@
   <div id="settings-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h2>⚙️ Configurações</h2>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <h2>⚙️ Configurações</h2>
+          <span id="modal-squad-badge" class="squad-tag hidden"></span>
+        </div>
         <button class="modal-close" id="btn-close-settings">✕</button>
       </div>
       <div class="modal-tabs">

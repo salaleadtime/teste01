@@ -19,6 +19,8 @@ const SESSION_KEY    = 'pp_session';
 
 const DEFAULT_CARDS    = ['1', '2', '3', '5', '8', '13', '21', '?'];
 const DEFAULT_HOUR_MAP = { '1':'2h','2':'4h','3':'8h','5':'16h','8':'24h','13':'60h','21':'80h','?':'?' };
+const AVATARS   = ['🦊','🐱','🐶','🦁','🐯','🐸','🤖','👾','🦄','🐼','🚀','⭐','🔥','💎','🧙','🦋'];
+const AVATAR_KEY = 'pp_avatar';
 
 // Unique client ID (replaces socket.id)
 function getOrCreateClientId() {
@@ -27,6 +29,27 @@ function getOrCreateClientId() {
   return id;
 }
 const clientId = getOrCreateClientId();
+
+// ─── Avatar ───────────────────────────────────────────────────────────────────
+let myAvatar = localStorage.getItem(AVATAR_KEY) || AVATARS[0];
+function initAvatarPicker() {
+  const picker = document.getElementById('avatar-picker');
+  if (!picker) return;
+  AVATARS.forEach((emoji) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'avatar-opt' + (myAvatar === emoji ? ' av-selected' : '');
+    btn.textContent = emoji;
+    btn.addEventListener('click', () => {
+      myAvatar = emoji;
+      localStorage.setItem(AVATAR_KEY, emoji);
+      picker.querySelectorAll('.avatar-opt').forEach((b) => b.classList.remove('av-selected'));
+      btn.classList.add('av-selected');
+    });
+    picker.appendChild(btn);
+  });
+}
+document.addEventListener('DOMContentLoaded', initAvatarPicker);
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let myRole = null, myName = null, myVote = null, mySquad = null, myRoomId = null;
@@ -132,7 +155,7 @@ function doLogout() {
 async function joinRoom(name, role, squad, roomId, smToken) {
   if (!roomId) return;
   const participantRef = db.ref(`rooms/${roomId}/participants/${clientId}`);
-  await participantRef.set({ name, role, squad: squad || null, vote: null });
+  await participantRef.set({ name, role, squad: squad || null, vote: null, avatar: myAvatar });
   participantRef.onDisconnect().remove();
 
   if (role === 'master') {
@@ -161,6 +184,7 @@ function listenToRoom(roomId) {
     // Build participant array — hide votes until revealed
     const participants = Object.entries(rawParts).map(([id, p]) => ({
       id, name: p.name, role: p.role, squad: p.squad || null,
+      avatar: p.avatar || '',
       hasVoted: p.vote !== null && p.vote !== undefined,
       vote: round.revealed ? p.vote : null,
     }));
@@ -342,6 +366,8 @@ function openSettings() {
   document.getElementById('tab-cards')?.classList.add('active-tab');
   document.getElementById('settings-footer')?.classList.remove('hidden');
   renderSettingsRows(); renderSquadsTab();
+  const squadBadge = document.getElementById('modal-squad-badge');
+  if (squadBadge) { if (mySquad) { squadBadge.textContent = mySquad; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); tempSettings = null; }
@@ -518,7 +544,7 @@ function updateQaView(participants, round) {
   if (!round.active) { show(waiting); hide(voting); hide(reveal); resetQaInput(); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('qa-results-table', participants); }
-  else { hide(reveal); show(voting); }
+  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); }
 }
 function resetQaInput() {
   myVote = null;
@@ -529,7 +555,7 @@ function resetQaInput() {
 function updateObserverView(participants, round) {
   setStoryLabel('observer-story', round.story);
   const waiting = document.getElementById('observer-waiting'); const voting = document.getElementById('observer-voting'); const reveal = document.getElementById('observer-reveal');
-  if (!round.active) { show(waiting); hide(waiting); hide(reveal); return; }
+  if (!round.active) { show(waiting); hide(voting); hide(reveal); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('observer-results-table', participants); }
   else {
@@ -538,7 +564,7 @@ function updateObserverView(participants, round) {
     participants.filter((p) => p.role !== 'master' && p.role !== 'observer').forEach((p) => {
       const card = document.createElement('div'); card.className = 'vote-status-card';
       const pill = p.hasVoted ? `<span class="vs-pill voted">Votou ✓</span>` : `<span class="vs-pill pending">Aguardando…</span>`;
-      card.innerHTML = `<div class="vs-name">${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
+      card.innerHTML = `<div class="vs-name">${p.avatar ? p.avatar + ' ' : ''}${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
       grid.appendChild(card);
     });
   }
@@ -634,7 +660,7 @@ function updateParticipants(participants, containerId) {
   const list = document.createElement('div'); list.className = 'participant-list';
   participants.forEach((p) => {
     const chip = document.createElement('div'); chip.className = 'participant-chip';
-    chip.innerHTML = `<span class="p-dot ${p.role}"></span><span>${p.name}</span>${p.squad ? `<span class="squad-tag">${p.squad}</span>` : ''}<span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
+    chip.innerHTML = `<span class="p-dot ${p.role}"></span>${p.avatar ? `<span style="font-size:.9rem">${p.avatar}</span>` : ''}<span>${p.name}</span>${p.squad ? `<span class="squad-tag">${p.squad}</span>` : ''}<span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
     list.appendChild(chip);
   });
   el.appendChild(list);
