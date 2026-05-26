@@ -97,15 +97,55 @@ async function clearHistory(r) {
   if (r) try { await db.ref(`rooms/${r}/history`).remove(); } catch {}
 }
 
-async function loadFirebaseHistory(roomId, fromVal, toVal) {
+let _migrationDone = false;
+
+async function loadMergedHistory(roomId) {
   if (!roomId) return [];
-  const snap = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
-  let entries = [];
-  if (snap.exists()) snap.forEach((child) => entries.unshift(child.val()));
-  if (!fromVal && !toVal) return entries;
+
+  // Load from Firebase (deduplicated by date+story)
+  let fbEntries = [];
+  try {
+    const snap = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+    if (snap.exists()) {
+      const seen = new Set();
+      snap.forEach((child) => {
+        const val = child.val();
+        const sig = `${val.date}|${val.story}`;
+        if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift(val); }
+      });
+    }
+  } catch {}
+
+  // Load from localStorage and find entries not yet in Firebase
+  const localEntries = loadHistory(roomId);
+  const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
+  const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`));
+
+  // Migrate localStorage-only entries to Firebase (once per session)
+  if (!_migrationDone && localOnly.length) {
+    _migrationDone = true;
+    localOnly.forEach((entry) => {
+      const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
+      db.ref(`rooms/${roomId}/history`).push({ ...entry, _ts: ts }).catch(() => {});
+    });
+  }
+
+  // Merge and sort newest first
+  const all = [...fbEntries, ...localOnly];
+  all.sort((a, b) => {
+    const ta = a._ts || parseHistoryDate(a.date)?.getTime() || 0;
+    const tb = b._ts || parseHistoryDate(b.date)?.getTime() || 0;
+    return tb - ta;
+  });
+  return all;
+}
+
+async function loadFirebaseHistory(roomId, fromVal, toVal) {
+  const all = await loadMergedHistory(roomId);
+  if (!fromVal && !toVal) return all;
   const fromDate = fromVal ? new Date(fromVal) : null;
   const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
-  return entries.filter((entry) => {
+  return all.filter((entry) => {
     const d = parseHistoryDate(entry.date);
     if (!d) return true;
     if (fromDate && d < fromDate) return false;
@@ -452,9 +492,10 @@ function saveRoundToHistory(participants, round) {
 }
 
 function parseHistoryDate(dateStr) {
-  const m = String(dateStr).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  const m = String(dateStr).match(/^(\d{2})\/(\d{2})\/(\d{4})(?:,\s*(\d{2}):(\d{2}))?/);
   if (!m) return null;
-  return new Date(`${m[3]}-${m[2]}-${m[1]}`);
+  const time = (m[4] && m[5]) ? `T${m[4]}:${m[5]}:00` : 'T00:00:00';
+  return new Date(`${m[3]}-${m[2]}-${m[1]}${time}`);
 }
 
 async function renderHistory() {
@@ -464,22 +505,13 @@ async function renderHistory() {
   const to   = document.getElementById('filter-to')?.value;
   container.innerHTML = '<p class="history-empty">Carregando...</p>';
   const entries = await loadFirebaseHistory(myRoomId, from, to);
-  // fallback to localStorage if Firebase returned nothing (e.g. old data before migration)
-  const final = entries.length ? entries : (() => {
-    const h = loadHistory(myRoomId);
-    if (!from && !to) return h;
-    const fd = from ? new Date(from) : null;
-    const td = to   ? new Date(to + 'T23:59:59') : null;
-    return h.filter((e) => { const d = parseHistoryDate(e.date); if (!d) return true; if (fd && d < fd) return false; if (td && d > td) return false; return true; });
-  })();
-  renderHistoryEntriesToContainer(container, final);
+  renderHistoryEntriesToContainer(container, entries);
 }
 
 async function exportHistoryToExcel() {
   const from = document.getElementById('filter-from')?.value;
   const to   = document.getElementById('filter-to')?.value;
-  let entries = await loadFirebaseHistory(myRoomId, from, to);
-  if (!entries.length) entries = loadHistory(myRoomId); // fallback to localStorage
+  const entries = await loadFirebaseHistory(myRoomId, from, to);
   exportHistoryDataToExcel(entries);
 }
 
