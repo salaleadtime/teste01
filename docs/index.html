@@ -282,20 +282,40 @@
 
         <!-- TAB: Acesso SM -->
         <div id="tab-access" class="tab-content">
-          <div id="squad-links-section"></div>
-          <p class="modal-hint">👥 <strong>Link para participantes</strong> — compartilhe com Dev, QA e Observadores da sua sessão:</p>
-          <div class="sm-link-box">
-            <input id="public-link-input" type="text" readonly />
-            <button id="btn-copy-public-link" class="btn-copy-sm">📋 Copiar</button>
-          </div>
-          <div class="sm-link-info">
-            <p>👑 <strong>Link Scrum Master</strong> — apenas para quem deve ter controle total:</p>
-            <div class="sm-link-box" style="margin-top:.4rem">
+
+          <!-- SM Link — highlighted, most important -->
+          <div class="access-card access-card-sm">
+            <div class="access-card-header">
+              <span class="access-icon">👑</span>
+              <div>
+                <strong>Seu link de Scrum Master</strong>
+                <p>Abre a sessão como SM em qualquer navegador ou dispositivo. Guarde este link!</p>
+              </div>
+            </div>
+            <div class="sm-link-box">
               <input id="sm-link-input" type="text" readonly />
               <button id="btn-copy-sm-link" class="btn-copy-sm">📋 Copiar</button>
             </div>
           </div>
-          <p class="modal-hint" style="margin-top:1rem;color:#d97706">⚠️ Cada SM tem sua própria sala isolada. Squads e configurações não são compartilhados entre SMs diferentes.</p>
+
+          <!-- Participant Link -->
+          <div class="access-card">
+            <div class="access-card-header">
+              <span class="access-icon">👥</span>
+              <div>
+                <strong>Link para participantes</strong>
+                <p>Compartilhe com Devs, QA e Observadores da sua sessão.</p>
+              </div>
+            </div>
+            <div class="sm-link-box">
+              <input id="public-link-input" type="text" readonly />
+              <button id="btn-copy-public-link" class="btn-copy-sm">📋 Copiar</button>
+            </div>
+          </div>
+
+          <!-- Squad Links (injected by JS, shown only when squads exist) -->
+          <div id="squad-links-section"></div>
+
         </div>
       </div>
       <div class="modal-footer" id="settings-footer">

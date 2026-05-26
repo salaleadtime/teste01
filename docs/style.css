@@ -301,12 +301,23 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .add-squad-form input:focus { border-color: var(--red); }
 
 /* ── SM link box ─────────────────────────────────────────────────────────────── */
-.sm-link-box { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-.sm-link-box input { flex: 1; padding: .5rem .75rem; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 6px; font-size: .78rem; color: var(--text); outline: none; font-family: monospace; }
-.btn-copy-sm { padding: .5rem .9rem; background: var(--surface2); color: var(--text); border: 1.5px solid var(--border); border-radius: 6px; font-size: .82rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .2s; }
+.sm-link-box { display: flex; gap: .5rem; align-items: center; margin-bottom: 0; }
+.sm-link-box input { flex: 1; padding: .5rem .75rem; background: var(--surface); border: 1.5px solid var(--border); border-radius: 6px; font-size: .78rem; color: var(--text); outline: none; font-family: monospace; min-width: 0; }
+.btn-copy-sm { padding: .5rem .9rem; background: var(--surface2); color: var(--text); border: 1.5px solid var(--border); border-radius: 6px; font-size: .82rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .2s; flex-shrink: 0; }
 .btn-copy-sm:hover { border-color: var(--red); color: var(--red); }
 .sm-link-info { margin-top: .75rem; }
 .sm-link-info p { font-size: .82rem; color: var(--muted); margin-bottom: .35rem; }
+
+/* ── Access tab cards ─────────────────────────────────────────────────────────── */
+.access-card { background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: .75rem; }
+.access-card-sm { border-color: var(--red); background: var(--red-bg); }
+.access-card-header { display: flex; gap: .75rem; align-items: flex-start; margin-bottom: .75rem; }
+.access-icon { font-size: 1.4rem; line-height: 1; margin-top: .1rem; }
+.access-card-header strong { font-size: .88rem; color: var(--text); display: block; margin-bottom: .15rem; }
+.access-card-header p { font-size: .78rem; color: var(--muted); margin: 0; line-height: 1.4; }
+.access-card-sm .access-card-header strong { color: var(--red); }
+.squad-access-section { margin-top: .25rem; }
+.squad-access-title { font-size: .82rem; color: var(--muted); font-weight: 600; margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
 
 /* ── Participants manage (kick) ───────────────────────────────────────────────── */
 .manage-list { display: flex; flex-direction: column; gap: .4rem; }

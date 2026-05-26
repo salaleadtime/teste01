@@ -485,13 +485,21 @@ function renderSmAccessTab() {
   const squads = (tempSettings || currentSettings).squads || [];
   if (!squads.length || !myRoomId) { squadSection.innerHTML = ''; return; }
   squadSection.innerHTML = `
-    <p class="modal-hint" style="margin-top:1.2rem">🏷️ <strong>Links por Squad</strong> — o squad já vem pré-selecionado para o time:</p>
-    ${squads.map((sq, i) => `
-      <div class="sm-link-box" style="margin-top:.4rem;align-items:center">
-        <span class="squad-tag" style="min-width:fit-content">${sq}</span>
-        <input id="squad-link-${i}" type="text" readonly value="${base}?room=${myRoomId}&squad=${encodeURIComponent(sq)}" />
-        <button id="btn-copy-squad-${i}" class="btn-copy-sm">📋 Copiar</button>
-      </div>`).join('')}`;
+    <div class="access-card" style="margin-top:.25rem">
+      <div class="access-card-header">
+        <span class="access-icon">🏷️</span>
+        <div>
+          <strong>Links por Squad</strong>
+          <p>O squad já vem pré-selecionado — envie o link do squad certo para cada time.</p>
+        </div>
+      </div>
+      ${squads.map((sq, i) => `
+        <div class="sm-link-box" style="margin-bottom:.5rem">
+          <span class="squad-tag" style="min-width:fit-content;flex-shrink:0">${escHtml(sq)}</span>
+          <input id="squad-link-${i}" type="text" readonly value="${base}?room=${myRoomId}&squad=${encodeURIComponent(sq)}" />
+          <button id="btn-copy-squad-${i}" class="btn-copy-sm">📋 Copiar</button>
+        </div>`).join('')}
+    </div>`;
   squads.forEach((sq, i) => {
     document.getElementById(`btn-copy-squad-${i}`)?.addEventListener('click', () => {
       copyText(document.getElementById(`squad-link-${i}`)?.value, `btn-copy-squad-${i}`);
