@@ -178,7 +178,10 @@
         <span id="tech-lead-squad-tag" class="squad-tag hidden"></span>
       </div>
       <div id="tl-story" class="story-name hidden"></div>
-      <button class="btn-logout" id="tl-logout">Sair</button>
+      <div class="header-actions">
+        <button class="btn-settings" id="btn-tl-toggle-history">📋 Histórico</button>
+        <button class="btn-logout" id="tl-logout">Sair</button>
+      </div>
     </header>
     <div class="screen-body">
       <div id="tl-waiting" class="waiting-panel">
@@ -213,6 +216,23 @@
           <div id="tl-summary"></div>
         </div>
       </div>
+      <!-- HISTÓRICO (leitura via Firebase, cross-device) -->
+      <div id="tl-history-panel" class="hidden history-panel">
+        <div class="history-panel-header">
+          <h2 class="section-title">📋 Histórico de Rodadas</h2>
+          <button id="btn-tl-export-history" class="btn-export">📊 Exportar Excel</button>
+        </div>
+        <div class="history-filter">
+          <label class="filter-label">De:</label>
+          <input id="tl-filter-from" type="date" class="filter-date" />
+          <label class="filter-label">Até:</label>
+          <input id="tl-filter-to" type="date" class="filter-date" />
+          <button id="btn-tl-filter-history" class="btn-filter">Filtrar</button>
+          <button id="btn-tl-filter-clear" class="btn-filter-clear">✕ Limpar</button>
+        </div>
+        <div id="tl-history-entries" class="history-entries"></div>
+      </div>
+
       <div class="participants-panel">
         <h3>Participantes</h3>
         <div id="tl-participants"></div>

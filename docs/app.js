@@ -92,7 +92,69 @@ function appendHistory(r, entry) {
   if (h.length > 100) h.pop();
   localStorage.setItem(historyKey(r), JSON.stringify(h));
 }
-function clearHistory(r) { localStorage.removeItem(historyKey(r)); }
+async function clearHistory(r) {
+  localStorage.removeItem(historyKey(r));
+  if (r) try { await db.ref(`rooms/${r}/history`).remove(); } catch {}
+}
+
+async function loadFirebaseHistory(roomId, fromVal, toVal) {
+  if (!roomId) return [];
+  const snap = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+  let entries = [];
+  if (snap.exists()) snap.forEach((child) => entries.unshift(child.val()));
+  if (!fromVal && !toVal) return entries;
+  const fromDate = fromVal ? new Date(fromVal) : null;
+  const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
+  return entries.filter((entry) => {
+    const d = parseHistoryDate(entry.date);
+    if (!d) return true;
+    if (fromDate && d < fromDate) return false;
+    if (toDate   && d > toDate)   return false;
+    return true;
+  });
+}
+
+function renderHistoryEntriesToContainer(container, entries) {
+  if (!entries.length) { container.innerHTML = '<p class="history-empty">Nenhuma rodada registrada ainda.</p>'; return; }
+  container.innerHTML = entries.map((entry) => {
+    const stats = [];
+    if (entry.devMode)  stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${escHtml(entry.devMode)}${entry.devHours ? ' = ' + escHtml(entry.devHours) : ''}</span>`);
+    if (entry.qaAvg)   stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${escHtml(entry.qaAvg)}</span>`);
+    if (entry.devHours && entry.qaAvg) {
+      const total = (parseFloat(entry.devHours) || 0) + (parseFloat(entry.qaAvg) || 0);
+      if (total > 0) stats.push(`<span class="history-stat-chip hsc-total">Total: ${total % 1 === 0 ? total : total.toFixed(1)}h</span>`);
+    }
+    const squadStr = entry.squads?.length ? entry.squads.map(escHtml).join(', ') : '';
+    const namesStr = entry.voters?.map((v) => `${escHtml(v.name)} (${escHtml(v.vote || '—')})`).join(', ') || '';
+    return `<div class="history-entry">
+      <div class="history-entry-header">
+        <span class="history-date">${entry.date}</span>
+        <span class="history-story">${escHtml(entry.story)}</span>
+        ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
+      </div>
+      ${stats.length ? `<div class="history-stats">${stats.join('')}</div>` : ''}
+      ${namesStr ? `<div class="history-participants">${namesStr}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function exportHistoryDataToExcel(entries) {
+  if (!entries.length) { alert('Nenhum dado para exportar no período selecionado.'); return; }
+  const rows = entries.map((entry) => {
+    const devCol = entry.devMode ? `${entry.devMode}${entry.devHours ? ' = ' + entry.devHours : ''}` : '—';
+    const qaCol  = entry.qaAvg || '—';
+    const devH   = parseFloat(entry.devHours) || 0;
+    const qaH    = parseFloat(entry.qaAvg)    || 0;
+    const total  = devH + qaH;
+    const totalCol = total > 0 ? `${total % 1 === 0 ? total : total.toFixed(1)}h` : '—';
+    return { 'Data': entry.date, 'Histórias': entry.story, 'Pontuação/Horas Dev': devCol, 'Horas QA': qaCol, 'Total': totalCol };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{ wch: 20 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
+  XLSX.writeFile(wb, 'historico-estimativas.xlsx');
+}
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 function saveSession() { localStorage.setItem(SESSION_KEY, JSON.stringify({ name: myName, role: myRole, squad: mySquad, smToken: urlSmToken, roomId: myRoomId })); }
@@ -230,7 +292,7 @@ function listenToRoom(roomId) {
     }));
     _latestParticipants = participants;
 
-    const voters   = participants.filter((p) => p.role !== 'master' && p.role !== 'observer');
+    const voters   = participants.filter((p) => p.role !== 'master' && p.role !== 'observer' && p.role !== 'tech-lead');
     const allVoted = voters.length > 0 && voters.every((p) => p.hasVoted);
 
     // Save history on reveal (SM only, once per reveal)
@@ -338,7 +400,7 @@ document.getElementById('btn-toggle-history').addEventListener('click', () => {
   document.getElementById('btn-toggle-history').textContent = open ? '✕ Fechar' : '📋 Histórico';
   if (open) renderHistory();
 });
-document.getElementById('btn-clear-history').addEventListener('click', () => { clearHistory(myRoomId); renderHistory(); });
+document.getElementById('btn-clear-history').addEventListener('click', async () => { await clearHistory(myRoomId); renderHistory(); });
 document.getElementById('btn-filter-history').addEventListener('click', renderHistory);
 document.getElementById('btn-filter-clear').addEventListener('click', () => {
   const fromEl = document.getElementById('filter-from');
@@ -348,6 +410,24 @@ document.getElementById('btn-filter-clear').addEventListener('click', () => {
   renderHistory();
 });
 document.getElementById('btn-export-history').addEventListener('click', exportHistoryToExcel);
+
+// ─── Tech Lead history ─────────────────────────────────────────────────────────
+document.getElementById('btn-tl-toggle-history').addEventListener('click', () => {
+  const panel = document.getElementById('tl-history-panel');
+  const open  = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  document.getElementById('btn-tl-toggle-history').textContent = open ? '✕ Fechar' : '📋 Histórico';
+  if (open) renderTlHistory();
+});
+document.getElementById('btn-tl-filter-history').addEventListener('click', renderTlHistory);
+document.getElementById('btn-tl-filter-clear').addEventListener('click', () => {
+  const fromEl = document.getElementById('tl-filter-from');
+  const toEl   = document.getElementById('tl-filter-to');
+  if (fromEl) fromEl.value = '';
+  if (toEl)   toEl.value   = '';
+  renderTlHistory();
+});
+document.getElementById('btn-tl-export-history').addEventListener('click', exportTlHistoryToExcel);
 
 function saveRoundToHistory(participants, round) {
   if (!myRoomId) return;
@@ -363,10 +443,12 @@ function saveRoundToHistory(participants, round) {
     qaAvg = avg % 1 === 0 ? `${avg}h` : `${avg.toFixed(1)}h`;
   }
   const squads = [...new Set(participants.filter((p) => p.squad).map((p) => p.squad))];
-  appendHistory(myRoomId, {
+  const entry = {
     date: now, story: round.story || '(sem título)', devMode, devHours, qaAvg, squads,
     voters: participants.filter((p) => p.role !== 'master' && p.role !== 'observer').map((p) => ({ name: p.name, role: p.role, squad: p.squad, vote: p.vote })),
-  });
+  };
+  appendHistory(myRoomId, entry);
+  try { db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: Date.now() }); } catch {}
 }
 
 function parseHistoryDate(dateStr) {
@@ -375,73 +457,51 @@ function parseHistoryDate(dateStr) {
   return new Date(`${m[3]}-${m[2]}-${m[1]}`);
 }
 
-function getFilteredHistory() {
-  const history = loadHistory(myRoomId);
-  const fromVal = document.getElementById('filter-from')?.value;
-  const toVal   = document.getElementById('filter-to')?.value;
-  if (!fromVal && !toVal) return history;
-  const fromDate = fromVal ? new Date(fromVal) : null;
-  const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
-  return history.filter((entry) => {
-    const d = parseHistoryDate(entry.date);
-    if (!d) return true;
-    if (fromDate && d < fromDate) return false;
-    if (toDate   && d > toDate)   return false;
-    return true;
-  });
-}
-
-function exportHistoryToExcel() {
-  const history = getFilteredHistory();
-  if (!history.length) { alert('Nenhum dado para exportar no período selecionado.'); return; }
-  const rows = history.map((entry) => {
-    const devCol = entry.devMode ? `${entry.devMode}${entry.devHours ? ' = ' + entry.devHours : ''}` : '—';
-    const qaCol  = entry.qaAvg || '—';
-    const devH   = parseFloat(entry.devHours) || 0;
-    const qaH    = parseFloat(entry.qaAvg)    || 0;
-    const total  = devH + qaH;
-    const totalCol = total > 0 ? `${total % 1 === 0 ? total : total.toFixed(1)}h` : '—';
-    return {
-      'Data':                entry.date,
-      'Histórias':           entry.story,
-      'Pontuação/Horas Dev': devCol,
-      'Horas QA':            qaCol,
-      'Total':               totalCol,
-    };
-  });
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const colWidths = [{ wch: 20 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 10 }];
-  ws['!cols'] = colWidths;
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
-  XLSX.writeFile(wb, 'historico-estimativas.xlsx');
-}
-
-function renderHistory() {
+async function renderHistory() {
   const container = document.getElementById('history-entries');
   if (!container || !myRoomId) return;
-  const history = getFilteredHistory();
-  if (!history.length) { container.innerHTML = '<p class="history-empty">Nenhuma rodada registrada ainda.</p>'; return; }
-  container.innerHTML = history.map((entry) => {
-    const stats = [];
-    if (entry.devMode)  stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${escHtml(entry.devMode)}${entry.devHours ? ' = ' + escHtml(entry.devHours) : ''}</span>`);
-    if (entry.qaAvg)   stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${escHtml(entry.qaAvg)}</span>`);
-    if (entry.devHours && entry.qaAvg) {
-      const total = (parseFloat(entry.devHours) || 0) + (parseFloat(entry.qaAvg) || 0);
-      if (total > 0) stats.push(`<span class="history-stat-chip hsc-total">Total: ${total % 1 === 0 ? total : total.toFixed(1)}h</span>`);
-    }
-    const squadStr = entry.squads?.length ? entry.squads.map(escHtml).join(', ') : '';
-    const namesStr = entry.voters?.map((v) => `${escHtml(v.name)} (${escHtml(v.vote || '—')})`).join(', ') || '';
-    return `<div class="history-entry">
-      <div class="history-entry-header">
-        <span class="history-date">${entry.date}</span>
-        <span class="history-story">${escHtml(entry.story)}</span>
-        ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
-      </div>
-      ${stats.length ? `<div class="history-stats">${stats.join('')}</div>` : ''}
-      ${namesStr ? `<div class="history-participants">${namesStr}</div>` : ''}
-    </div>`;
-  }).join('');
+  const from = document.getElementById('filter-from')?.value;
+  const to   = document.getElementById('filter-to')?.value;
+  container.innerHTML = '<p class="history-empty">Carregando...</p>';
+  const entries = await loadFirebaseHistory(myRoomId, from, to);
+  // fallback to localStorage if Firebase returned nothing (e.g. old data before migration)
+  const final = entries.length ? entries : (() => {
+    const h = loadHistory(myRoomId);
+    if (!from && !to) return h;
+    const fd = from ? new Date(from) : null;
+    const td = to   ? new Date(to + 'T23:59:59') : null;
+    return h.filter((e) => { const d = parseHistoryDate(e.date); if (!d) return true; if (fd && d < fd) return false; if (td && d > td) return false; return true; });
+  })();
+  renderHistoryEntriesToContainer(container, final);
+}
+
+async function exportHistoryToExcel() {
+  const from = document.getElementById('filter-from')?.value;
+  const to   = document.getElementById('filter-to')?.value;
+  let entries = await loadFirebaseHistory(myRoomId, from, to);
+  if (!entries.length) entries = loadHistory(myRoomId); // fallback to localStorage
+  exportHistoryDataToExcel(entries);
+}
+
+async function renderTlHistory() {
+  const container = document.getElementById('tl-history-entries');
+  if (!container || !myRoomId) return;
+  container.innerHTML = '<p class="history-empty">Carregando...</p>';
+  const from = document.getElementById('tl-filter-from')?.value;
+  const to   = document.getElementById('tl-filter-to')?.value;
+  try {
+    const entries = await loadFirebaseHistory(myRoomId, from, to);
+    renderHistoryEntriesToContainer(container, entries);
+  } catch {
+    container.innerHTML = '<p class="history-empty">Erro ao carregar histórico.</p>';
+  }
+}
+
+async function exportTlHistoryToExcel() {
+  const from = document.getElementById('tl-filter-from')?.value;
+  const to   = document.getElementById('tl-filter-to')?.value;
+  const entries = await loadFirebaseHistory(myRoomId, from, to);
+  exportHistoryDataToExcel(entries);
 }
 
 // ─── Settings modal ───────────────────────────────────────────────────────────
@@ -830,7 +890,7 @@ function renderSplitResults(participants, devContainerId = 'master-dev-results',
   const { mode: modeVote, count: modeCount } = devVotes.length ? calcMode(devVotes) : {};
   const devRows = devs.map((p) => {
     const hours = p.vote ? (currentSettings.hourMap[p.vote] || '') : ''; const isMod = p.vote && p.vote === modeVote;
-    const chip = p.vote ? `<span class="vote-chip developer ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
+    const chip = p.vote ? `<span class="vote-chip ${p.role} ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}${isMod ? '<span class="winner-tag">✓</span>' : ''}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum desenvolvedor</td></tr>`;
   const qaHours = qas.filter((p) => p.vote).map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));

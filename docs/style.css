@@ -92,11 +92,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .btn-qa:hover { background: var(--qa-light); }
 .btn-qa:disabled { opacity: .4; cursor: not-allowed; }
 
-.btn-logout { background: transparent; border: 1.5px solid var(--border); color: var(--muted); border-radius: 6px; padding: .35rem .8rem; font-size: .8rem; cursor: pointer; transition: all .2s; }
-.btn-logout:hover { border-color: var(--danger); color: var(--danger); }
+.btn-logout { background: rgba(255,255,255,.12); border: 1.5px solid rgba(255,255,255,.25); color: rgba(255,255,255,.85); border-radius: 6px; padding: .35rem .8rem; font-size: .8rem; cursor: pointer; transition: all .2s; }
+.btn-logout:hover { background: rgba(255,255,255,.22); border-color: #fff; color: #fff; }
 
-.btn-settings { background: transparent; border: 1.5px solid var(--border); color: var(--text); border-radius: 6px; padding: .4rem .9rem; font-size: .82rem; cursor: pointer; font-weight: 600; transition: all .2s; }
-.btn-settings:hover { border-color: var(--red); color: var(--red); }
+.btn-settings { background: rgba(255,255,255,.12); border: 1.5px solid rgba(255,255,255,.25); color: rgba(255,255,255,.85); border-radius: 6px; padding: .4rem .9rem; font-size: .82rem; cursor: pointer; font-weight: 600; transition: all .2s; }
+.btn-settings:hover { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.8); color: #fff; }
 
 .btn-outline { padding: .7rem 1.4rem; background: transparent; color: var(--text); border: 1.5px solid var(--border); border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: all .2s; }
 .btn-outline:hover { background: var(--surface2); }
@@ -110,13 +110,23 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 /* ── Header ──────────────────────────────────────────────────────────────── */
 .app-header {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem;
-  padding: .875rem 1.5rem; background: var(--surface); border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 10; box-shadow: var(--shadow);
+  padding: .875rem 1.5rem;
+  background: linear-gradient(135deg, #1a1035 0%, #cc092f 100%);
+  position: sticky; top: 0; z-index: 10;
+  box-shadow: 0 2px 16px rgba(0,0,0,.25);
 }
 .header-left { display: flex; align-items: center; gap: .75rem; }
 .header-actions { display: flex; align-items: center; gap: .5rem; }
-.user-name { font-weight: 700; font-size: 1rem; }
-.story-name { font-style: italic; color: var(--muted); font-size: .85rem; background: var(--surface2); padding: .25rem .75rem; border-radius: 6px; border: 1px solid var(--border); }
+.user-name { font-weight: 700; font-size: 1rem; color: #fff; }
+.story-name { font-style: italic; color: rgba(255,255,255,.9); font-size: .85rem; background: rgba(255,255,255,.12); padding: .25rem .75rem; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); }
+
+/* Badge overrides for dark header */
+.app-header .badge-dev     { background: rgba(196,181,253,.2); color: #c4b5fd; border-color: rgba(196,181,253,.35); }
+.app-header .badge-qa      { background: rgba(125,211,252,.18); color: #7dd3fc; border-color: rgba(125,211,252,.35); }
+.app-header .badge-master  { background: rgba(252,165,165,.2); color: #fca5a5; border-color: rgba(252,165,165,.35); }
+.app-header .badge-observer{ background: rgba(255,255,255,.12); color: rgba(255,255,255,.75); border-color: rgba(255,255,255,.25); }
+.app-header .badge-tl      { background: rgba(94,234,212,.2); color: #5eead4; border-color: rgba(94,234,212,.35); }
+.app-header .squad-tag     { background: rgba(255,255,255,.1); color: rgba(255,255,255,.7); border-color: rgba(255,255,255,.2); }
 
 /* ── Badges ──────────────────────────────────────────────────────────────── */
 .badge { font-size: .68rem; font-weight: 800; padding: .25rem .7rem; border-radius: 999px; text-transform: uppercase; letter-spacing: .06em; }
@@ -128,6 +138,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 
 /* ── Screen body ─────────────────────────────────────────────────────────── */
 .screen-body { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+.section-title { font-size: 1.1rem; font-weight: 800; color: var(--text); margin-bottom: 1rem; padding-left: .75rem; border-left: 3px solid var(--red); }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; box-shadow: var(--shadow); }
@@ -139,7 +150,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .waiting-panel p { color: var(--muted); font-size: 1rem; }
 
 /* ── Fibonacci cards ─────────────────────────────────────────────────────── */
-.voting-hint { text-align: center; font-size: .95rem; color: var(--muted); padding: 1.25rem 0 1rem; font-weight: 600; }
+.voting-hint { text-align: center; font-size: 1rem; color: var(--text); padding: 1.25rem 0 1rem; font-weight: 700; letter-spacing: .01em; }
 .fibonacci-cards { display: flex; flex-wrap: wrap; justify-content: center; gap: .9rem; padding: .5rem 0 2rem; }
 .fib-card {
   width: 80px; height: 110px; border-radius: var(--radius);
@@ -157,6 +168,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .fib-card.selected .fib-hours { opacity: .85; }
 
 .voted-msg { text-align: center; color: var(--success); font-size: .95rem; padding-bottom: 1rem; font-weight: 600; }
+#tl-fibonacci-cards .fib-card:hover { border-color: var(--tl); box-shadow: 0 8px 20px rgba(13,148,136,.2); }
+#tl-fibonacci-cards .fib-card.selected { background: var(--tl); border-color: var(--tl-light); box-shadow: 0 8px 20px rgba(13,148,136,.35); }
 
 /* ── QA input ────────────────────────────────────────────────────────────── */
 .qa-input-group { display: flex; align-items: center; gap: 1rem; justify-content: center; padding: 1rem 0 2rem; }
@@ -181,7 +194,6 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .vs-pill.val-qa  { background: var(--qa);  color: #fff; font-size: 1rem; padding: .3rem .9rem; }
 
 /* ── Results split layout ────────────────────────────────────────────────── */
-.section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; }
 .results-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
 .results-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); }
 .col-title { font-size: .9rem; font-weight: 700; margin-bottom: .875rem; padding-bottom: .5rem; }
@@ -199,6 +211,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .vote-chip.developer { background: var(--dev-bg); color: var(--dev); }
 .vote-chip.tech-lead { background: var(--tl-bg); color: var(--tl); }
 .vote-chip.qa  { background: var(--qa-bg); color: var(--qa); }
+.vote-chip.tech-lead.vote-winner { background: var(--tl); color: #fff; }
 .chip-points { font-size: 1rem; line-height: 1.2; }
 .chip-hours  { font-size: .62rem; opacity: .75; }
 .vote-chip.vote-winner { background: var(--dev); color: #fff; }
@@ -348,7 +361,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 
 /* ── Round timer ─────────────────────────────────────────────────────────────── */
 .voting-header { display: flex; align-items: center; justify-content: center; gap: 1.25rem; flex-wrap: wrap; }
-.round-timer { display: inline-flex; align-items: center; font-size: 1.1rem; font-weight: 800; color: var(--muted); background: var(--surface2); border: 1.5px solid var(--border); border-radius: 8px; padding: .3rem .9rem; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.round-timer { display: inline-flex; align-items: center; font-size: 1.1rem; font-weight: 800; color: var(--red); background: var(--red-bg); border: 1.5px solid rgba(204,9,47,.25); border-radius: 8px; padding: .3rem .9rem; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
 
 /* ── Avatar picker ───────────────────────────────────────────────────────────── */
 .avatar-picker { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; padding: .25rem 0; }
