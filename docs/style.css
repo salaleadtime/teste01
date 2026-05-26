@@ -318,6 +318,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .access-card-sm .access-card-header strong { color: var(--red); }
 .squad-access-section { margin-top: .25rem; }
 .squad-access-title { font-size: .82rem; color: var(--muted); font-weight: 600; margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
+.access-card-invite { border-style: dashed; border-color: var(--border); background: var(--surface); }
+.access-card-invite .access-card-header strong { color: var(--muted); }
 
 /* ── Participants manage (kick) ───────────────────────────────────────────────── */
 .manage-list { display: flex; flex-direction: column; gap: .4rem; }

@@ -480,6 +480,10 @@ function renderSmAccessTab() {
   if (pubInput) pubInput.value = participantLink;
   if (smInput)  smInput.value  = smLink;
 
+  // "Invite another SM" card — always uses the base URL without room= so each SM gets their own isolated room
+  const inviteSmInput = document.getElementById('sm-invite-input');
+  if (inviteSmInput) inviteSmInput.value = `${base}?sm=${SM_TOKEN}`;
+
   const squadSection = document.getElementById('squad-links-section');
   if (!squadSection) return;
   const squads = (tempSettings || currentSettings).squads || [];
@@ -509,6 +513,7 @@ function renderSmAccessTab() {
 
 document.getElementById('btn-copy-public-link')?.addEventListener('click', () => copyText(document.getElementById('public-link-input')?.value, 'btn-copy-public-link'));
 document.getElementById('btn-copy-sm-link')?.addEventListener('click', () => copyText(document.getElementById('sm-link-input')?.value, 'btn-copy-sm-link'));
+document.getElementById('btn-copy-sm-invite')?.addEventListener('click', () => copyText(document.getElementById('sm-invite-input')?.value, 'btn-copy-sm-invite'));
 
 function copyText(text, btnId) {
   if (!text) return;
