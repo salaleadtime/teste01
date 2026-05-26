@@ -54,14 +54,16 @@ const urlSquad   = urlParams.get('squad');
 if (urlSmToken) document.querySelector('.role-btn[data-role="master"]')?.classList.remove('hidden');
 
 // Pre-load room settings on login screen so the squad dropdown shows before joining
-if (urlRoomId) {
-  db.ref(`rooms/${urlRoomId}/settings`).once('value').then((snap) => {
+(function preloadSettings() {
+  const roomToLoad = urlRoomId || (urlSmToken ? localStorage.getItem(SM_ROOM_KEY) : null);
+  if (!roomToLoad) return;
+  db.ref(`rooms/${roomToLoad}/settings`).once('value').then((snap) => {
     if (snap.exists() && snap.val()) {
       currentSettings = { ...currentSettings, ...snap.val() };
       updateSquadSelector();
     }
   });
-}
+})();
 
 // ─── SM room ID ───────────────────────────────────────────────────────────────
 function getOrCreateSmRoom() {
