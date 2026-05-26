@@ -53,14 +53,26 @@ const urlSquad   = urlParams.get('squad');
 
 if (urlSmToken) document.querySelector('.role-btn[data-role="master"]')?.classList.remove('hidden');
 
-// Pre-load room settings on login screen so the squad dropdown shows before joining
+// Pre-load room settings — uses localStorage cache for instant display, then refreshes from Firebase
 (function preloadSettings() {
   const roomToLoad = urlRoomId || (urlSmToken ? localStorage.getItem(SM_ROOM_KEY) : null);
   if (!roomToLoad) return;
+
+  // Synchronous: restore from cache so dropdown appears immediately (no flash on F5)
+  try {
+    const cached = JSON.parse(localStorage.getItem(`pp_sqc_${roomToLoad}`));
+    if (Array.isArray(cached) && cached.length) {
+      currentSettings = { ...currentSettings, squads: cached };
+      updateSquadSelector();
+    }
+  } catch {}
+
+  // Async: fetch fresh data from Firebase and update cache
   db.ref(`rooms/${roomToLoad}/settings`).once('value').then((snap) => {
     if (snap.exists() && snap.val()) {
       currentSettings = { ...currentSettings, ...snap.val() };
       updateSquadSelector();
+      try { localStorage.setItem(`pp_sqc_${roomToLoad}`, JSON.stringify(currentSettings.squads || [])); } catch {}
     }
   });
 })();
@@ -523,6 +535,8 @@ function updateSquadSelector() {
   if (!group || !sel) return;
   const squads = currentSettings.squads || [];
   if (squads.length > 0) {
+    // Keep cache up-to-date so the next F5 shows squads instantly
+    if (myRoomId) try { localStorage.setItem(`pp_sqc_${myRoomId}`, JSON.stringify(squads)); } catch {}
     sel.innerHTML = '<option value="">— Selecione seu squad —</option>';
     squads.forEach((sq) => { const o = document.createElement('option'); o.value = sq; o.textContent = sq; sel.appendChild(o); });
     if (urlSquad && squads.includes(urlSquad)) {
