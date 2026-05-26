@@ -155,7 +155,9 @@ async function doJoin() {
   const squadEl = document.getElementById('squad-select');
   mySquad = urlSquad || ((squadEl && squadEl.offsetParent !== null && squadEl.value) ? squadEl.value : null);
   myName   = name; myRole = selectedRole;
-  myRoomId = selectedRole === 'master' ? getOrCreateSmRoom() : urlRoomId;
+  myRoomId = selectedRole === 'master' ? (urlRoomId || getOrCreateSmRoom()) : urlRoomId;
+  // When SM joins via a link that already carries the room ID, persist it locally
+  if (selectedRole === 'master' && urlRoomId) localStorage.setItem(SM_ROOM_KEY, urlRoomId);
   errEl.classList.add('hidden');
   saveSession();
   showScreen(selectedRole);
@@ -472,7 +474,7 @@ function renderParticipantsManage() {
 function renderSmAccessTab() {
   const base = window.location.origin + window.location.pathname;
   const participantLink = myRoomId ? `${base}?room=${myRoomId}` : '(carregando...)';
-  const smLink = `${base}?sm=${SM_TOKEN}`;
+  const smLink = myRoomId ? `${base}?sm=${SM_TOKEN}&room=${myRoomId}` : `${base}?sm=${SM_TOKEN}`;
   const pubInput = document.getElementById('public-link-input');
   const smInput  = document.getElementById('sm-link-input');
   if (pubInput) pubInput.value = participantLink;
