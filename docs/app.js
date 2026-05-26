@@ -467,6 +467,7 @@ document.getElementById('btn-filter-clear').addEventListener('click', () => {
   renderHistory();
 });
 document.getElementById('btn-export-history').addEventListener('click', exportHistoryToExcel);
+document.getElementById('btn-import-history').addEventListener('click', importHistoryFromExcel);
 
 // ─── Tech Lead history ─────────────────────────────────────────────────────────
 document.getElementById('btn-tl-toggle-history').addEventListener('click', () => {
@@ -506,6 +507,49 @@ function saveRoundToHistory(participants, round) {
   };
   appendHistory(myRoomId, entry);
   try { db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: Date.now() }); } catch {}
+}
+
+function importHistoryFromExcel() {
+  if (!myRoomId) { alert('Entre na sessão como Scrum Master antes de importar.'); return; }
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.xlsx,.xls';
+  input.onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      const entries = rows.map(row => {
+        const dateStr = String(row['Data'] || '').trim();
+        if (!dateStr) return null;
+        const story = String(row['Histórias'] || '(sem título)').trim();
+        const devCol = String(row['Pontuação/Horas Dev'] || '').trim();
+        const qaCol  = String(row['Horas QA'] || '').trim();
+        let devMode = null, devHours = null;
+        const devMatch = devCol.match(/^([^\s=]+)\s*=\s*(\S+)/);
+        if (devMatch) { devMode = devMatch[1]; devHours = devMatch[2]; }
+        else if (devCol && devCol !== '—') devMode = devCol;
+        const qaAvg = (qaCol && qaCol !== '—') ? qaCol : null;
+        return { date: dateStr, story, devMode, devHours, qaAvg, squads: [], voters: [], _imported: true };
+      }).filter(Boolean);
+      if (!entries.length) { alert('Nenhuma linha válida encontrada. Verifique se o arquivo é o exportado por esta aplicação.'); return; }
+      // Load existing sigs to avoid duplicates
+      const existing = await loadMergedHistory(myRoomId);
+      const existSigs = new Set(existing.map(e => `${e.date}|${e.story}`));
+      const toImport = entries.filter(e => !existSigs.has(`${e.date}|${e.story}`));
+      if (!toImport.length) { alert('Todas as entradas do arquivo já existem no histórico.'); return; }
+      for (const entry of toImport) {
+        const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
+        appendHistory(myRoomId, entry);
+        try { await db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: ts }); } catch {}
+      }
+      _migrationDone = false; // allow re-scan
+      renderHistory();
+      alert(`✅ ${toImport.length} entradas restauradas com sucesso!`);
+    } catch { alert('Erro ao ler o arquivo. Verifique se é um .xlsx exportado por esta aplicação.'); }
+  };
+  input.click();
 }
 
 function parseHistoryDate(dateStr) {

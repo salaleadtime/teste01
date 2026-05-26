@@ -289,6 +289,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .history-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; flex-wrap: wrap; gap: .5rem; }
 .history-panel-header .section-title { margin-bottom: 0; }
 .history-header-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.btn-import { padding: .4rem .9rem; background: #0369a1; color: #fff; border: none; border-radius: 6px; font-size: .82rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .2s; }
+.btn-import:hover { background: #075985; }
 .btn-export { padding: .4rem .9rem; background: #15803d; color: #fff; border: none; border-radius: 6px; font-size: .82rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .2s; }
 .btn-export:hover { background: #166534; }
 .history-filter { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .65rem 1rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; }
