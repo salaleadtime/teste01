@@ -1,5 +1,9 @@
 const socket = io();
 
+function escHtml(str) {
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 let myRole = null;
 let myName = null;
 let myVote = null;
@@ -245,19 +249,19 @@ function renderHistory() {
   }
   container.innerHTML = history.map((entry) => {
     const stats = [];
-    if (entry.devMode) stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${entry.devMode}${entry.devHours ? ' = ' + entry.devHours : ''}</span>`);
-    if (entry.qaAvg)  stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${entry.qaAvg}</span>`);
+    if (entry.devMode) stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${escHtml(entry.devMode)}${entry.devHours ? ' = ' + escHtml(entry.devHours) : ''}</span>`);
+    if (entry.qaAvg)  stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${escHtml(entry.qaAvg)}</span>`);
     if (entry.devHours && entry.qaAvg) {
       const total = (parseFloat(entry.devHours) || 0) + (parseFloat(entry.qaAvg) || 0);
       if (total > 0) stats.push(`<span class="history-stat-chip hsc-total">Total: ${total % 1 === 0 ? total : total.toFixed(1)}h</span>`);
     }
-    const squadStr = entry.squads?.length ? entry.squads.join(', ') : '';
-    const namesStr = entry.voters?.map((v) => `${v.name} (${v.vote || '—'})`).join(', ') || '';
+    const squadStr = entry.squads?.length ? entry.squads.map(escHtml).join(', ') : '';
+    const namesStr = entry.voters?.map((v) => `${escHtml(v.name)} (${escHtml(v.vote || '—')})`).join(', ') || '';
     return `
       <div class="history-entry">
         <div class="history-entry-header">
           <span class="history-date">${entry.date}</span>
-          <span class="history-story">${entry.story}</span>
+          <span class="history-story">${escHtml(entry.story)}</span>
           ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
         </div>
         ${stats.length ? `<div class="history-stats">${stats.join('')}</div>` : ''}
@@ -546,7 +550,7 @@ function renderObserverVoteStatus(participants) {
     const card = document.createElement('div');
     card.className = 'vote-status-card';
     const pill = p.hasVoted ? `<span class="vs-pill voted">Votou ✓</span>` : `<span class="vs-pill pending">Aguardando…</span>`;
-    card.innerHTML = `<div class="vs-name">${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
+    card.innerHTML = `<div class="vs-name">${escHtml(p.name)}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
     grid.appendChild(card);
   });
 }
@@ -576,13 +580,13 @@ function renderVoteGrid(participants, revealed) {
     if (p.role === 'observer') {
       pill = `<span class="vs-pill pending">Observando</span>`;
     } else if (revealed && p.vote !== null) {
-      pill = `<span class="vs-pill ${p.role === 'qa' ? 'val-qa' : 'val-dev'}">${p.vote}</span>`;
+      pill = `<span class="vs-pill ${p.role === 'qa' ? 'val-qa' : 'val-dev'}">${escHtml(p.vote)}</span>`;
     } else if (p.hasVoted) {
       pill = `<span class="vs-pill voted">Votou ✓</span>`;
     } else {
       pill = `<span class="vs-pill pending">Aguardando…</span>`;
     }
-    card.innerHTML = `<div class="vs-name">${p.name}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
+    card.innerHTML = `<div class="vs-name">${escHtml(p.name)}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
     grid.appendChild(card);
   });
 }
@@ -607,17 +611,17 @@ function renderSplitResults(participants) {
     const hours = p.vote ? (currentSettings.hourMap[p.vote] || '') : '';
     const isMod = p.vote && p.vote === modeVote;
     const chip = p.vote
-      ? `<span class="vote-chip developer ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${p.vote}</span>${hours ? `<span class="chip-hours">${hours}</span>` : ''}</span>`
+      ? `<span class="vote-chip developer ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>`
       : `<span style="color:var(--muted)">—</span>`;
-    return `<tr><td>${p.name}${isMod ? '<span class="winner-tag">✓</span>' : ''}</td><td>${chip}</td></tr>`;
+    return `<tr><td>${escHtml(p.name)}${isMod ? '<span class="winner-tag">✓</span>' : ''}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum desenvolvedor</td></tr>`;
   const qaHours = qas.filter((p) => p.vote).map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
   const avgQaH  = qaHours.length ? qaHours.reduce((a, b) => a + b, 0) / qaHours.length : null;
   const qaRows  = qas.map((p) => {
-    const chip = p.vote ? `<span class="vote-chip qa"><span class="chip-points">${p.vote}</span></span>` : `<span style="color:var(--muted)">—</span>`;
-    return `<tr><td>${p.name}</td><td>${chip}</td></tr>`;
+    const chip = p.vote ? `<span class="vote-chip qa"><span class="chip-points">${escHtml(p.vote)}</span></span>` : `<span style="color:var(--muted)">—</span>`;
+    return `<tr><td>${escHtml(p.name)}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum QA</td></tr>`;
-  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${modeVote}</strong> (${modeCount}/${devVotes.length}) = <strong>${currentSettings.hourMap[modeVote] || '?'}</strong></td></tr></tfoot>` : '';
+  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(currentSettings.hourMap[modeVote] || '?')}</strong></td></tr></tfoot>` : '';
   const qaFooter  = avgQaH !== null ? `<tfoot><tr><td colspan="2" class="table-footer">Média QA: <strong>${avgQaH % 1 === 0 ? avgQaH : avgQaH.toFixed(1)}h</strong></td></tr></tfoot>` : '';
   document.getElementById('master-dev-results').innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
   document.getElementById('master-qa-results').innerHTML  = `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
@@ -627,8 +631,8 @@ function renderSplitResults(participants) {
 function renderSimpleTable(containerId, participants) {
   const rows = participants.filter((p) => p.role !== 'master').map((p) => {
     const hours = (p.role === 'developer' && p.vote) ? (currentSettings.hourMap[p.vote] || '') : '';
-    const chip  = p.vote ? `<span class="vote-chip ${p.role}"><span class="chip-points">${p.vote}</span>${hours ? `<span class="chip-hours">${hours}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
-    return `<tr><td>${p.name}</td><td><span class="badge badge-${p.role}">${roleLabel(p.role)}</span></td><td>${chip}</td></tr>`;
+    const chip  = p.vote ? `<span class="vote-chip ${p.role}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
+    return `<tr><td>${escHtml(p.name)}</td><td><span class="badge badge-${p.role}">${roleLabel(p.role)}</span></td><td>${chip}</td></tr>`;
   }).join('');
   document.getElementById(containerId).innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Papel</th><th>Estimativa</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -671,7 +675,7 @@ function updateParticipants(participants, containerId) {
   participants.forEach((p) => {
     const chip = document.createElement('div');
     chip.className = 'participant-chip';
-    chip.innerHTML = `<span class="p-dot ${p.role}"></span><span>${p.name}</span>${p.squad ? `<span class="squad-tag">${p.squad}</span>` : ''}<span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
+    chip.innerHTML = `<span class="p-dot ${p.role}"></span><span>${escHtml(p.name)}</span>${p.squad ? `<span class="squad-tag">${escHtml(p.squad)}</span>` : ''}<span style="font-size:.68rem;color:var(--muted)">${roleLabel(p.role)}</span>`;
     list.appendChild(chip);
   });
   el.appendChild(list);

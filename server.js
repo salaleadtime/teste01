@@ -13,10 +13,9 @@ const SM_TOKEN = process.env.SM_TOKEN || 'SalaAgilidade-SM';
 
 const DEFAULT_CARDS = ['1', '2', '3', '5', '8', '13', '21', '?'];
 const DEFAULT_HOUR_MAP = {
-  '1': '2h', '2': '4h', '3': '8h', '4': '12h',
-  '5': '16h', '6': '20h', '8': '24h', '9': '32h',
-  '10': '40h', '11': '48h', '13': '60h', '21': '80h',
-  '22': '1 Sprint', '?': '?',
+  '1': '2h', '2': '4h', '3': '8h',
+  '5': '16h', '8': '24h', '13': '60h',
+  '21': '80h', '?': '?',
 };
 
 // Each SM has their own isolated room keyed by roomId (generated on client, stored in localStorage)
