@@ -175,7 +175,7 @@
       <div id="master-story-display" class="story-name hidden"></div>
       <div class="header-actions">
         <button class="btn-settings" id="btn-open-settings">⚙️ Configurações</button>
-        <button class="btn-settings" id="btn-toggle-history">📋 História</button>
+        <button class="btn-settings" id="btn-toggle-history">📋 Histórico</button>
         <button class="btn-logout" id="master-logout">Sair</button>
       </div>
     </header>
@@ -217,11 +217,22 @@
         </div>
       </div>
 
-      <!-- HISTÓRIA (privado, salvo no navegador do SM) -->
+      <!-- HISTÓRICO (privado, salvo no navegador do SM) -->
       <div id="master-history-panel" class="hidden history-panel">
         <div class="history-panel-header">
           <h2 class="section-title">📋 Histórico de Rodadas</h2>
-          <button id="btn-clear-history" class="btn-danger">🗑 Limpar tudo</button>
+          <div class="history-header-actions">
+            <button id="btn-export-history" class="btn-export">📊 Exportar Excel</button>
+            <button id="btn-clear-history" class="btn-danger">🗑 Limpar tudo</button>
+          </div>
+        </div>
+        <div class="history-filter">
+          <label class="filter-label">De:</label>
+          <input id="filter-from" type="date" class="filter-date" />
+          <label class="filter-label">Até:</label>
+          <input id="filter-to" type="date" class="filter-date" />
+          <button id="btn-filter-history" class="btn-filter">Filtrar</button>
+          <button id="btn-filter-clear" class="btn-filter-clear">✕ Limpar</button>
         </div>
         <div id="history-entries" class="history-entries"></div>
       </div>
@@ -341,6 +352,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Firebase compat SDK (sem build tools) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>

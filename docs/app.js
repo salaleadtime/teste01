@@ -317,15 +317,24 @@ document.getElementById('btn-reset').addEventListener('click', async () => {
   await clearVotes();
 });
 
-// ─── História ─────────────────────────────────────────────────────────────────
+// ─── Histórico ────────────────────────────────────────────────────────────────
 document.getElementById('btn-toggle-history').addEventListener('click', () => {
   const panel = document.getElementById('master-history-panel');
   const open  = panel.classList.contains('hidden');
   panel.classList.toggle('hidden');
-  document.getElementById('btn-toggle-history').textContent = open ? '✕ Fechar' : '📋 História';
+  document.getElementById('btn-toggle-history').textContent = open ? '✕ Fechar' : '📋 Histórico';
   if (open) renderHistory();
 });
 document.getElementById('btn-clear-history').addEventListener('click', () => { clearHistory(myRoomId); renderHistory(); });
+document.getElementById('btn-filter-history').addEventListener('click', renderHistory);
+document.getElementById('btn-filter-clear').addEventListener('click', () => {
+  const fromEl = document.getElementById('filter-from');
+  const toEl   = document.getElementById('filter-to');
+  if (fromEl) fromEl.value = '';
+  if (toEl)   toEl.value   = '';
+  renderHistory();
+});
+document.getElementById('btn-export-history').addEventListener('click', exportHistoryToExcel);
 
 function saveRoundToHistory(participants, round) {
   if (!myRoomId) return;
@@ -347,10 +356,58 @@ function saveRoundToHistory(participants, round) {
   });
 }
 
+function parseHistoryDate(dateStr) {
+  const m = String(dateStr).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return null;
+  return new Date(`${m[3]}-${m[2]}-${m[1]}`);
+}
+
+function getFilteredHistory() {
+  const history = loadHistory(myRoomId);
+  const fromVal = document.getElementById('filter-from')?.value;
+  const toVal   = document.getElementById('filter-to')?.value;
+  if (!fromVal && !toVal) return history;
+  const fromDate = fromVal ? new Date(fromVal) : null;
+  const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
+  return history.filter((entry) => {
+    const d = parseHistoryDate(entry.date);
+    if (!d) return true;
+    if (fromDate && d < fromDate) return false;
+    if (toDate   && d > toDate)   return false;
+    return true;
+  });
+}
+
+function exportHistoryToExcel() {
+  const history = getFilteredHistory();
+  if (!history.length) { alert('Nenhum dado para exportar no período selecionado.'); return; }
+  const rows = history.map((entry) => {
+    const devCol = entry.devMode ? `${entry.devMode}${entry.devHours ? ' = ' + entry.devHours : ''}` : '—';
+    const qaCol  = entry.qaAvg || '—';
+    const devH   = parseFloat(entry.devHours) || 0;
+    const qaH    = parseFloat(entry.qaAvg)    || 0;
+    const total  = devH + qaH;
+    const totalCol = total > 0 ? `${total % 1 === 0 ? total : total.toFixed(1)}h` : '—';
+    return {
+      'Data':                entry.date,
+      'Histórias':           entry.story,
+      'Pontuação/Horas Dev': devCol,
+      'Horas QA':            qaCol,
+      'Total':               totalCol,
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const colWidths = [{ wch: 20 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 10 }];
+  ws['!cols'] = colWidths;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Histórico');
+  XLSX.writeFile(wb, 'historico-estimativas.xlsx');
+}
+
 function renderHistory() {
   const container = document.getElementById('history-entries');
   if (!container || !myRoomId) return;
-  const history = loadHistory(myRoomId);
+  const history = getFilteredHistory();
   if (!history.length) { container.innerHTML = '<p class="history-empty">Nenhuma rodada registrada ainda.</p>'; return; }
   container.innerHTML = history.map((entry) => {
     const stats = [];
