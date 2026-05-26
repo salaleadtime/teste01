@@ -116,12 +116,29 @@ async function loadMergedHistory(roomId) {
     }
   } catch {}
 
-  // Load from localStorage and find entries not yet in Firebase
+  // Load from localStorage (current room) and find entries not yet in Firebase
   const localEntries = loadHistory(roomId);
   const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
   const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`));
 
-  // Migrate localStorage-only entries to Firebase (once per session)
+  // Recovery scan: also look in ALL other pp_hist_* keys in localStorage
+  // (handles cases where room ID changed between sessions)
+  const allSigs = new Set([...fbSigs, ...localOnly.map(e => `${e.date}|${e.story}`)]);
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('pp_hist_') && k !== historyKey(roomId))
+      .forEach(key => {
+        try {
+          const other = JSON.parse(localStorage.getItem(key)) || [];
+          other.forEach(e => {
+            const sig = `${e.date}|${e.story}`;
+            if (!allSigs.has(sig)) { allSigs.add(sig); localOnly.push(e); }
+          });
+        } catch {}
+      });
+  } catch {}
+
+  // Migrate all localStorage-only entries to Firebase (once per session)
   if (!_migrationDone && localOnly.length) {
     _migrationDone = true;
     localOnly.forEach((entry) => {
