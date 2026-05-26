@@ -46,6 +46,10 @@
               <span class="role-icon">👀</span>
               <div><span class="role-label">Observador</span><span class="role-desc">Acompanha sem votar</span></div>
             </button>
+            <button class="role-btn" data-role="tech-lead">
+              <span class="role-icon">⚡</span>
+              <div><span class="role-label">Tech Lead</span><span class="role-desc">Vota e visualiza resultados completos</span></div>
+            </button>
             <button class="role-btn role-sm hidden" data-role="master">
               <span class="role-icon">👑</span>
               <div><span class="role-label">Scrum Master</span><span class="role-desc">Visão geral e controle da sessão</span></div>
@@ -161,6 +165,57 @@
       <div class="participants-panel">
         <h3>Participantes</h3>
         <div id="observer-participants"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TECH LEAD -->
+  <div id="screen-tech-lead" class="screen">
+    <header class="app-header">
+      <div class="header-left">
+        <span class="badge badge-tl">Tech Lead</span>
+        <span id="tech-lead-name" class="user-name"></span>
+        <span id="tech-lead-squad-tag" class="squad-tag hidden"></span>
+      </div>
+      <div id="tl-story" class="story-name hidden"></div>
+      <button class="btn-logout" id="tl-logout">Sair</button>
+    </header>
+    <div class="screen-body">
+      <div id="tl-waiting" class="waiting-panel">
+        <div class="waiting-icon">⏳</div>
+        <p>Aguardando o Scrum Master iniciar uma rodada...</p>
+      </div>
+      <div id="tl-voting" class="hidden">
+        <div class="voting-header">
+          <p class="voting-hint">Selecione sua estimativa:</p>
+          <div id="tl-timer" class="round-timer hidden"></div>
+        </div>
+        <div class="fibonacci-cards" id="tl-fibonacci-cards"></div>
+        <p id="tl-voted-msg" class="voted-msg hidden">✅ Voto registrado! Aguardando os demais...</p>
+        <div id="tl-vote-status" class="vote-status-grid" style="margin-top:1.5rem"></div>
+      </div>
+      <div id="tl-reveal" class="hidden reveal-section">
+        <div class="results-header">
+          <h2 class="section-title">Resultado da Rodada</h2>
+          <button id="btn-tl-copy-result" class="btn-copy">📸 Copiar para Jira</button>
+        </div>
+        <div id="capture-area-tl">
+          <div class="results-split">
+            <div class="results-col col-dev">
+              <h3 class="col-title">💻 Desenvolvedores</h3>
+              <div id="tl-dev-results"></div>
+            </div>
+            <div class="results-col col-qa">
+              <h3 class="col-title">🔍 QA</h3>
+              <div id="tl-qa-results"></div>
+            </div>
+          </div>
+          <div id="tl-summary"></div>
+        </div>
+      </div>
+      <div class="participants-panel">
+        <h3>Participantes</h3>
+        <div id="tl-participants"></div>
       </div>
     </div>
   </div>

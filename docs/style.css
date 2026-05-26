@@ -14,6 +14,9 @@
   --qa: #0369a1;
   --qa-light: #0ea5e9;
   --qa-bg: rgba(3,105,161,.07);
+  --tl: #0d9488;
+  --tl-light: #14b8a6;
+  --tl-bg: rgba(13,148,136,.07);
   --text: #1e1b3a;
   --muted: #6b7280;
   --success: #15803d;
@@ -121,6 +124,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .badge-qa     { background: var(--qa-bg);  color: var(--qa);  border: 1px solid rgba(3,105,161,.2); }
 .badge-master    { background: var(--red-bg); color: var(--red); border: 1px solid rgba(204,9,47,.2); }
 .badge-observer  { background: rgba(107,114,128,.1); color: var(--muted); border: 1px solid rgba(107,114,128,.2); }
+.badge-tl        { background: var(--tl-bg); color: var(--tl); border: 1px solid rgba(13,148,136,.2); }
 
 /* ── Screen body ─────────────────────────────────────────────────────────── */
 .screen-body { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
@@ -193,6 +197,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 
 .vote-chip { display: inline-flex; flex-direction: column; align-items: center; padding: .2rem .65rem; border-radius: 6px; font-weight: 700; }
 .vote-chip.developer { background: var(--dev-bg); color: var(--dev); }
+.vote-chip.tech-lead { background: var(--tl-bg); color: var(--tl); }
 .vote-chip.qa  { background: var(--qa-bg); color: var(--qa); }
 .chip-points { font-size: 1rem; line-height: 1.2; }
 .chip-hours  { font-size: .62rem; opacity: .75; }
@@ -230,7 +235,8 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .p-dot.developer { background: var(--dev); }
 .p-dot.qa        { background: var(--qa); }
 .p-dot.master    { background: var(--red); }
-.p-dot.observer  { background: var(--muted); }
+.p-dot.observer   { background: var(--muted); }
+.p-dot.tech-lead  { background: var(--tl); }
 
 /* ── Settings modal ──────────────────────────────────────────────────────── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 1rem; backdrop-filter: blur(3px); }

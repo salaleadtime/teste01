@@ -165,7 +165,7 @@ async function doJoin() {
 }
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
-['dev-logout', 'qa-logout', 'observer-logout', 'master-logout'].forEach((id) => {
+['dev-logout', 'qa-logout', 'observer-logout', 'tl-logout', 'master-logout'].forEach((id) => {
   document.getElementById(id)?.addEventListener('click', doLogout);
 });
 
@@ -244,10 +244,11 @@ function listenToRoom(roomId) {
     }
     _lastRevealedState = round.revealed;
 
-    if (myRole === 'developer')    { updateDevView(participants, round);       updateParticipants(participants, 'dev-participants'); }
-    else if (myRole === 'qa')      { updateQaView(participants, round);        updateParticipants(participants, 'qa-participants'); }
-    else if (myRole === 'observer'){ updateObserverView(participants, round);  updateParticipants(participants, 'observer-participants'); }
-    else if (myRole === 'master')  { updateMasterView(participants, round, allVoted); updateParticipants(participants, 'master-participants'); }
+    if (myRole === 'developer')      { updateDevView(participants, round);              updateParticipants(participants, 'dev-participants'); }
+    else if (myRole === 'qa')        { updateQaView(participants, round);               updateParticipants(participants, 'qa-participants'); }
+    else if (myRole === 'observer')  { updateObserverView(participants, round);         updateParticipants(participants, 'observer-participants'); }
+    else if (myRole === 'tech-lead') { updateTechLeadView(participants, round);         updateParticipants(participants, 'tl-participants'); }
+    else if (myRole === 'master')    { updateMasterView(participants, round, allVoted); updateParticipants(participants, 'master-participants'); }
 
     const usersTab = document.getElementById('tab-users');
     if (usersTab?.classList.contains('active-tab')) renderParticipantsManage();
@@ -288,6 +289,17 @@ document.getElementById('fibonacci-cards').addEventListener('click', (e) => {
   document.getElementById('dev-voted-msg').classList.remove('hidden');
 });
 
+// ─── Tech Lead voting ─────────────────────────────────────────────────────────
+document.getElementById('tl-fibonacci-cards').addEventListener('click', (e) => {
+  const card = e.target.closest('.fib-card');
+  if (!card || card.disabled) return;
+  myVote = card.dataset.value;
+  document.querySelectorAll('#tl-fibonacci-cards .fib-card').forEach((c) => c.classList.remove('selected'));
+  card.classList.add('selected');
+  db.ref(`rooms/${myRoomId}/participants/${clientId}/vote`).set(myVote);
+  document.getElementById('tl-voted-msg').classList.remove('hidden');
+});
+
 // ─── QA voting ────────────────────────────────────────────────────────────────
 document.getElementById('btn-qa-vote').addEventListener('click', submitQaVote);
 document.getElementById('qa-hours-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQaVote(); });
@@ -303,6 +315,7 @@ function submitQaVote() {
 
 // ─── Master controls ──────────────────────────────────────────────────────────
 document.getElementById('btn-copy-result').addEventListener('click', copyResultsAsImage);
+document.getElementById('btn-tl-copy-result').addEventListener('click', copyTlResultsAsImage);
 document.getElementById('btn-start').addEventListener('click', async () => {
   const story = document.getElementById('master-story-input').value.trim();
   await db.ref(`rooms/${myRoomId}/round`).set({ active: true, story: story || '', revealed: false, startedAt: Date.now() });
@@ -338,7 +351,7 @@ document.getElementById('btn-export-history').addEventListener('click', exportHi
 
 function saveRoundToHistory(participants, round) {
   if (!myRoomId) return;
-  const devVoters = participants.filter((p) => p.role === 'developer' && p.vote && p.vote !== '?');
+  const devVoters = participants.filter((p) => (p.role === 'developer' || p.role === 'tech-lead') && p.vote && p.vote !== '?');
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
   const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   let devMode = null, devHours = null;
@@ -710,6 +723,78 @@ function updateObserverView(participants, round) {
   }
 }
 
+function renderTlFibCards() {
+  const container = document.getElementById('tl-fibonacci-cards'); if (!container) return;
+  container.innerHTML = '';
+  currentSettings.cards.forEach((val) => {
+    const hours = currentSettings.hourMap[val] || '';
+    const btn = document.createElement('button');
+    btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
+    btn.innerHTML = `<span class="fib-value">${val}</span>${hours ? `<span class="fib-hours">${hours}</span>` : ''}`;
+    container.appendChild(btn);
+  });
+}
+function resetTlCards() { myVote = null; renderTlFibCards(); document.getElementById('tl-voted-msg')?.classList.add('hidden'); }
+
+function updateTechLeadView(participants, round) {
+  setStoryLabel('tl-story', round.story);
+  const waiting = document.getElementById('tl-waiting'); const voting = document.getElementById('tl-voting'); const reveal = document.getElementById('tl-reveal');
+  if (!round.active) { show(waiting); hide(voting); hide(reveal); resetTlCards(); stopRoundTimer(); return; }
+  hide(waiting);
+  if (round.revealed) {
+    hide(voting); show(reveal);
+    renderSplitResults(participants, 'tl-dev-results', 'tl-qa-results');
+    renderSummary(participants, 'tl-summary');
+    stopRoundTimer();
+  } else {
+    hide(reveal); show(voting);
+    renderTlFibCards();
+    if (round.startedAt) startRoundTimer(round.startedAt, 'tl-timer');
+    const grid = document.getElementById('tl-vote-status'); if (!grid) return;
+    grid.innerHTML = '';
+    participants.filter((p) => p.role !== 'master' && p.role !== 'observer').forEach((p) => {
+      const card = document.createElement('div'); card.className = 'vote-status-card';
+      const pill = p.hasVoted ? `<span class="vs-pill voted">Votou ✓</span>` : `<span class="vs-pill pending">Aguardando…</span>`;
+      card.innerHTML = `<div class="vs-name">${p.avatar ? p.avatar + ' ' : ''}${escHtml(p.name)}</div><div class="vs-role">${roleLabel(p.role)}</div>${pill}`;
+      grid.appendChild(card);
+    });
+  }
+}
+
+async function copyTlResultsAsImage() {
+  const btn = document.getElementById('btn-tl-copy-result');
+  btn.textContent = '⏳ Gerando...'; btn.disabled = true;
+  try {
+    const area = document.getElementById('capture-area-tl');
+    const story = document.getElementById('tl-story').textContent.trim();
+    const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    const canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+    const finalW = canvas.width; const headerH = 72;
+    const final = document.createElement('canvas'); final.width = finalW; final.height = canvas.height + headerH;
+    const ctx = final.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, finalW, 0); grad.addColorStop(0, '#1a1035'); grad.addColorStop(1, '#cc092f');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, finalW, headerH);
+    ctx.fillStyle = '#ffffff'; ctx.font = `bold ${headerH * 0.36}px Segoe UI, sans-serif`;
+    ctx.fillText('🃏 Estimativa Ágil', 28, headerH * 0.48);
+    ctx.font = `${headerH * 0.26}px Segoe UI, sans-serif`; ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText(story ? `${story}  ·  ${now}` : now, 28, headerH * 0.82);
+    ctx.drawImage(canvas, 0, headerH);
+    final.toBlob(async (blob) => {
+      let copied = false;
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); copied = true; } catch (_) {}
+      if (copied) { btn.textContent = '✅ Copiado! Cole no Jira (Ctrl+V)'; setTimeout(() => { btn.textContent = '📸 Copiar para Jira'; btn.disabled = false; }, 3000); }
+      else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'resultado.png'; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        btn.textContent = '📸 Copiar para Jira'; btn.disabled = false;
+      }
+    }, 'image/png');
+  } catch {
+    btn.textContent = '📸 Copiar para Jira'; btn.disabled = false;
+  }
+}
+
 function updateMasterView(participants, round, allVoted) {
   setStoryLabel('master-story-display', round.story);
   const setup = document.getElementById('master-setup'); const active = document.getElementById('master-active'); const results = document.getElementById('master-results');
@@ -739,8 +824,8 @@ function calcMode(votes) {
   return { mode, count: maxFreq };
 }
 
-function renderSplitResults(participants) {
-  const devs = participants.filter((p) => p.role === 'developer'); const qas = participants.filter((p) => p.role === 'qa');
+function renderSplitResults(participants, devContainerId = 'master-dev-results', qaContainerId = 'master-qa-results') {
+  const devs = participants.filter((p) => p.role === 'developer' || p.role === 'tech-lead'); const qas = participants.filter((p) => p.role === 'qa');
   const devVotes = devs.filter((p) => p.vote && p.vote !== '?').map((p) => p.vote);
   const { mode: modeVote, count: modeCount } = devVotes.length ? calcMode(devVotes) : {};
   const devRows = devs.map((p) => {
@@ -756,22 +841,22 @@ function renderSplitResults(participants) {
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum QA</td></tr>`;
   const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(currentSettings.hourMap[modeVote] || '?')}</strong></td></tr></tfoot>` : '';
   const qaFooter  = avgQaH !== null ? `<tfoot><tr><td colspan="2" class="table-footer">Média QA: <strong>${avgQaH % 1 === 0 ? avgQaH : avgQaH.toFixed(1)}h</strong></td></tr></tfoot>` : '';
-  document.getElementById('master-dev-results').innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
-  document.getElementById('master-qa-results').innerHTML  = `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
+  document.getElementById(devContainerId).innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
+  document.getElementById(qaContainerId).innerHTML  = `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
 }
 
 function renderSimpleTable(containerId, participants) {
   const rows = participants.filter((p) => p.role !== 'master').map((p) => {
-    const hours = (p.role === 'developer' && p.vote) ? (currentSettings.hourMap[p.vote] || '') : '';
+    const hours = ((p.role === 'developer' || p.role === 'tech-lead') && p.vote) ? (currentSettings.hourMap[p.vote] || '') : '';
     const chip = p.vote ? `<span class="vote-chip ${p.role}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}</td><td><span class="badge badge-${p.role}">${roleLabel(p.role)}</span></td><td>${chip}</td></tr>`;
   }).join('');
   document.getElementById(containerId).innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Papel</th><th>Estimativa</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function renderSummary(participants) {
-  const box = document.getElementById('master-summary');
-  const devVoters = participants.filter((p) => p.role === 'developer' && p.vote && p.vote !== '?');
+function renderSummary(participants, containerId = 'master-summary') {
+  const box = document.getElementById(containerId);
+  const devVoters = participants.filter((p) => (p.role === 'developer' || p.role === 'tech-lead') && p.vote && p.vote !== '?');
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
   const stats = []; let devHoursNum = 0;
   if (devVoters.length) {
@@ -822,7 +907,7 @@ function setStoryLabel(id, story) {
 }
 function show(el) { el?.classList.remove('hidden'); }
 function hide(el) { el?.classList.add('hidden'); }
-function roleLabel(role) { return { developer: 'Dev', qa: 'QA', master: 'SM', observer: 'Obs' }[role] || role; }
+function roleLabel(role) { return { developer: 'Dev', qa: 'QA', master: 'SM', observer: 'Obs', 'tech-lead': 'TL' }[role] || role; }
 
 // ─── Copy results as image for Jira ──────────────────────────────────────────
 async function copyResultsAsImage() {
