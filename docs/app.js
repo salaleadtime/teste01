@@ -480,7 +480,6 @@ function renderSmAccessTab() {
   if (pubInput) pubInput.value = participantLink;
   if (smInput)  smInput.value  = smLink;
 
-  // "Invite another SM" card — always uses the base URL without room= so each SM gets their own isolated room
   const inviteSmInput = document.getElementById('sm-invite-input');
   if (inviteSmInput) inviteSmInput.value = `${base}?sm=${SM_TOKEN}`;
 
@@ -504,16 +503,25 @@ function renderSmAccessTab() {
           <button id="btn-copy-squad-${i}" class="btn-copy-sm">📋 Copiar</button>
         </div>`).join('')}
     </div>`;
-  squads.forEach((sq, i) => {
-    document.getElementById(`btn-copy-squad-${i}`)?.addEventListener('click', () => {
-      copyText(document.getElementById(`squad-link-${i}`)?.value, `btn-copy-squad-${i}`);
-    });
-  });
 }
+
+// Event delegation for squad copy buttons (handles dynamic innerHTML injection)
+document.getElementById('squad-links-section')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[id^="btn-copy-squad-"]');
+  if (!btn) return;
+  const i = btn.id.replace('btn-copy-squad-', '');
+  copyText(document.getElementById(`squad-link-${i}`)?.value, btn.id);
+});
 
 document.getElementById('btn-copy-public-link')?.addEventListener('click', () => copyText(document.getElementById('public-link-input')?.value, 'btn-copy-public-link'));
 document.getElementById('btn-copy-sm-link')?.addEventListener('click', () => copyText(document.getElementById('sm-link-input')?.value, 'btn-copy-sm-link'));
-document.getElementById('btn-copy-sm-invite')?.addEventListener('click', () => copyText(document.getElementById('sm-invite-input')?.value, 'btn-copy-sm-invite'));
+document.getElementById('btn-copy-sm-invite')?.addEventListener('click', () => {
+  const base = window.location.origin + window.location.pathname;
+  const url = `${base}?sm=${SM_TOKEN}`;
+  const inp = document.getElementById('sm-invite-input');
+  if (inp) inp.value = url;
+  copyText(url, 'btn-copy-sm-invite');
+});
 
 function copyText(text, btnId) {
   if (!text) return;
