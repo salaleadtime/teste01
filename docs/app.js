@@ -198,6 +198,15 @@ async function joinRoom(name, role, squad, roomId, smToken) {
 
   listenToRoom(roomId);
   listenForKick(roomId);
+
+  // For SM: update the browser URL to include room= so the address bar becomes a bookmarkable link
+  if (role === 'master' && roomId) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('room') !== roomId) {
+      url.searchParams.set('room', roomId);
+      history.replaceState(null, '', url.toString());
+    }
+  }
 }
 
 function listenToRoom(roomId) {
