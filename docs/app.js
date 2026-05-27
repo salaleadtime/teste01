@@ -443,8 +443,10 @@ function listenToRoom(roomId) {
         id, name: p.name, role: p.role, squad: p.squad || null,
         hasVoted: p.vote !== null, vote: p.vote,
       }));
+      // Grava histórico E _historySaved atomicamente num único update para fechar
+      // a race condition: se o SM der F5 entre o reveal e o set do flag,
+      // _historySaved chega antes e o listener não re-dispara no reload
       saveRoundToHistory(partsWithVotes, round);
-      db.ref(`rooms/${myRoomId}/round/_historySaved`).set(true).catch(() => {});
       if (!document.getElementById('master-history-panel')?.classList.contains('hidden')) renderHistory();
     }
     _lastRevealedState = round.revealed;
@@ -594,8 +596,16 @@ function saveRoundToHistory(participants, round) {
     date: now, story: round.story || '(sem título)', devMode, devHours, qaAvg, squads,
     voters: participants.filter((p) => p.role !== 'master' && p.role !== 'observer').map((p) => ({ name: p.name, role: p.role, squad: p.squad, vote: p.vote })),
   };
-  // Firebase é a fonte de verdade — não grava mais no localStorage para evitar ressurreição de entradas deletadas
-  try { db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: Date.now() }); } catch {}
+  // Escrita atômica: histórico + _historySaved num único update
+  // Garante que _historySaved chega ao Firebase junto com a entrada,
+  // fechando a race condition que causava re-salvamento no reload
+  try {
+    const histKey = db.ref(`rooms/${myRoomId}/history`).push().key;
+    const updates = {};
+    updates[`rooms/${myRoomId}/history/${histKey}`] = { ...entry, _ts: Date.now() };
+    updates[`rooms/${myRoomId}/round/_historySaved`] = true;
+    db.ref().update(updates);
+  } catch {}
 }
 
 function importHistoryFromExcel() {
