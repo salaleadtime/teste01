@@ -315,6 +315,12 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .history-participants { font-size: .78rem; color: var(--muted); }
 .history-empty { color: var(--muted); font-size: .85rem; padding: 1rem 0; text-align: center; }
 
+/* ── History entry edit & note ───────────────────────────────────────────────── */
+.btn-edit-entry { background: none; border: none; cursor: pointer; font-size: .82rem; padding: .15rem .35rem; border-radius: 4px; color: var(--muted); transition: all .15s; margin-left: auto; flex-shrink: 0; line-height: 1; }
+.btn-edit-entry:hover { background: var(--surface2); color: var(--text); transform: scale(1.15); }
+.history-note { margin-top: .55rem; font-size: .82rem; color: var(--text); background: var(--surface2); border-left: 3px solid var(--red); padding: .45rem .75rem; border-radius: 0 6px 6px 0; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.history-note-icon { margin-right: .3rem; }
+
 /* ── Squad tag ───────────────────────────────────────────────────────────────── */
 .squad-tag { font-size: .72rem; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: .15rem .6rem; }
 
