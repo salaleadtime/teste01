@@ -102,10 +102,12 @@ let _migrationDone = false;
 async function loadMergedHistory(roomId) {
   if (!roomId) return [];
 
-  // Load from Firebase (deduplicated by date+story)
+  // Load from Firebase (deduplicated by date+story) — timeout de 6s para não travar
   let fbEntries = [];
   try {
-    const snap = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+    const fbPromise = db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+    const snap = await Promise.race([fbPromise, timeoutPromise]);
     if (snap.exists()) {
       const seen = new Set();
       snap.forEach((child) => {
@@ -584,8 +586,12 @@ async function renderHistory() {
   const from = document.getElementById('filter-from')?.value;
   const to   = document.getElementById('filter-to')?.value;
   container.innerHTML = '<p class="history-empty">Carregando...</p>';
-  const entries = await loadFirebaseHistory(myRoomId, from, to);
-  renderHistoryEntriesToContainer(container, entries, { canEdit: true });
+  try {
+    const entries = await loadFirebaseHistory(myRoomId, from, to);
+    renderHistoryEntriesToContainer(container, entries, { canEdit: true });
+  } catch {
+    container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
+  }
 }
 
 async function exportHistoryToExcel() {
@@ -605,7 +611,7 @@ async function renderTlHistory() {
     const entries = await loadFirebaseHistory(myRoomId, from, to);
     renderHistoryEntriesToContainer(container, entries);
   } catch {
-    container.innerHTML = '<p class="history-empty">Erro ao carregar histórico.</p>';
+    container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
   }
 }
 
