@@ -88,7 +88,11 @@ function getOrCreateSmRoom() {
 const historyKey = (r) => `pp_hist_${r}`;
 function loadHistory(r) { try { return JSON.parse(localStorage.getItem(historyKey(r))) || []; } catch { return []; } }
 function appendHistory(r, entry) {
-  const h = loadHistory(r); h.unshift(entry);
+  const h = loadHistory(r);
+  // Evita duplicatas: não adiciona se já existe entrada com mesma data+história
+  const sig = `${entry.date}|${entry.story}`;
+  if (h.some(e => `${e.date}|${e.story}` === sig)) return;
+  h.unshift(entry);
   if (h.length > 100) h.pop();
   localStorage.setItem(historyKey(r), JSON.stringify(h));
 }
@@ -189,13 +193,18 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
     const squadStr = entry.squads?.length ? entry.squads.map(escHtml).join(', ') : '';
     const namesStr = entry.voters?.map((v) => `${escHtml(v.name)} (${escHtml(v.vote || '—')})`).join(', ') || '';
     const noteHtml = entry.note ? `<div class="history-note"><span class="history-note-icon">💬</span> ${escHtml(entry.note)}</div>` : '';
-    const editBtn  = canEdit ? `<button class="btn-edit-entry" data-idx="${idx}" title="Editar história e recado">✏️</button>` : '';
+    const actionBtns = canEdit
+      ? `<div class="history-entry-actions">
+           <button class="btn-edit-entry"   data-idx="${idx}" title="Editar história e recado">✏️</button>
+           <button class="btn-delete-entry" data-idx="${idx}" title="Excluir esta entrada">🗑️</button>
+         </div>`
+      : '';
     return `<div class="history-entry">
       <div class="history-entry-header">
         <span class="history-date">${entry.date}</span>
         <span class="history-story">${escHtml(entry.story)}</span>
         ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
-        ${editBtn}
+        ${actionBtns}
       </div>
       ${stats.length ? `<div class="history-stats">${stats.join('')}</div>` : ''}
       ${namesStr ? `<div class="history-participants">${namesStr}</div>` : ''}
@@ -208,6 +217,15 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
       btn.addEventListener('click', () => {
         const idx = parseInt(btn.dataset.idx, 10);
         openEditStoryModal(_currentHistoryEntries[idx]);
+      });
+    });
+    container.querySelectorAll('.btn-delete-entry').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx   = parseInt(btn.dataset.idx, 10);
+        const entry = _currentHistoryEntries[idx];
+        if (!confirm(`Excluir a entrada "${entry.story}" (${entry.date})?`)) return;
+        await deleteHistoryEntry(entry);
+        renderHistory();
       });
     });
   }
@@ -372,12 +390,15 @@ function listenToRoom(roomId) {
     const allVoted = voters.length > 0 && voters.every((p) => p.hasVoted);
 
     // Save history on reveal (SM only, once per reveal)
-    if (myRole === 'master' && round.revealed && !_lastRevealedState) {
+    // round._historySaved impede re-salvar ao recarregar a página com rodada já revelada
+    if (myRole === 'master' && round.revealed && !_lastRevealedState && !round._historySaved) {
       const partsWithVotes = Object.entries(rawParts).map(([id, p]) => ({
         id, name: p.name, role: p.role, squad: p.squad || null,
         hasVoted: p.vote !== null, vote: p.vote,
       }));
       saveRoundToHistory(partsWithVotes, round);
+      // Marca no Firebase que o histórico desta rodada já foi salvo
+      db.ref(`rooms/${myRoomId}/round/_historySaved`).set(true).catch(() => {});
       if (!document.getElementById('master-history-panel')?.classList.contains('hidden')) renderHistory();
     }
     _lastRevealedState = round.revealed;
@@ -620,6 +641,25 @@ async function exportTlHistoryToExcel() {
   const to   = document.getElementById('tl-filter-to')?.value;
   const entries = await loadFirebaseHistory(myRoomId, from, to);
   exportHistoryDataToExcel(entries);
+}
+
+// ─── Delete history entry ─────────────────────────────────────────────────────
+async function deleteHistoryEntry(entry) {
+  if (!myRoomId) return;
+  // Remove do Firebase
+  if (entry._firebaseKey) {
+    try { await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).remove(); } catch {}
+  }
+  // Remove do localStorage
+  try {
+    const sig  = `${entry.date}|${entry.story}`;
+    const hist = loadHistory(myRoomId);
+    const idx  = hist.findIndex(e => `${e.date}|${e.story}` === sig);
+    if (idx >= 0) {
+      hist.splice(idx, 1);
+      localStorage.setItem(historyKey(myRoomId), JSON.stringify(hist));
+    }
+  } catch {}
 }
 
 // ─── Edit story modal ─────────────────────────────────────────────────────────
