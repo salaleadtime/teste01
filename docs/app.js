@@ -257,10 +257,11 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
       btn.addEventListener('click', async () => {
         const idx   = parseInt(btn.dataset.idx, 10);
         const entry = _currentHistoryEntries[idx];
-        if (!confirm(`Excluir TODAS as entradas de "${entry.story}"?`)) return;
+        if (!confirm(`Excluir "${entry.story}" (${entry.date})?`)) return;
 
-        // Remove visualmente TODAS as entradas com o mesmo nome de história
-        _currentHistoryEntries = _currentHistoryEntries.filter(e => e.story !== entry.story);
+        // Remove visualmente a entrada clicada (e duplicatas com mesmo date+story)
+        const sig = `${entry.date}|${entry.story}`;
+        _currentHistoryEntries = _currentHistoryEntries.filter(e => `${e.date}|${e.story}` !== sig);
         const cont = btn.closest('.history-entries') || document.getElementById('history-entries');
         if (cont) renderHistoryEntriesToContainer(cont, _currentHistoryEntries, { canEdit: true });
 
@@ -697,26 +698,22 @@ async function exportTlHistoryToExcel() {
 // ─── Delete history entry ─────────────────────────────────────────────────────
 async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
-  const storyName = entry.story;
-
-  // Remove TODAS as entradas do Firebase com o mesmo nome de história (duplicatas incluídas)
+  // Soft-delete: marca _deleted=true no Firebase para entradas com o mesmo date+story
+  // Isso é obrigatório: com localStorage bloqueado (Edge Tracking Prevention) a migration
+  // não consegue salvar a flag "já migrado" e roda a cada F5 — o soft-delete garante que
+  // a entrada continua visível em fbAllStories e nunca é re-importada do localStorage
+  const sig = `${entry.date}|${entry.story}`;
   const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
   if (snap.exists()) {
-    const toRemove = [];
+    const toMark = [];
     snap.forEach((child) => {
-      if (child.val().story === storyName) toRemove.push(child.key);
+      const v = child.val();
+      if (`${v.date}|${v.story}` === sig && !v._deleted) toMark.push(child.key);
     });
-    for (const k of toRemove) {
-      await db.ref(`rooms/${myRoomId}/history/${k}`).remove();
+    for (const k of toMark) {
+      await db.ref(`rooms/${myRoomId}/history/${k}`).update({ _deleted: true });
     }
   }
-
-  // Apaga do localStorage também para não ressuscitar via migração
-  try {
-    Object.keys(localStorage)
-      .filter(k => k.startsWith('pp_hist_'))
-      .forEach(key => { try { localStorage.removeItem(key); } catch {} });
-  } catch {}
 }
 
 // ─── Edit story modal ─────────────────────────────────────────────────────────
