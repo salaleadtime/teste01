@@ -227,13 +227,17 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
         const entry = _currentHistoryEntries[idx];
         if (!confirm(`Excluir a entrada "${entry.story}" (${entry.date})?`)) return;
 
-        // Remove visualmente de imediato (sem esperar Firebase)
+        // Remove visualmente de imediato
         _currentHistoryEntries = _currentHistoryEntries.filter((_, i) => i !== idx);
         const cont = btn.closest('.history-entries') || document.getElementById('history-entries');
         if (cont) renderHistoryEntriesToContainer(cont, _currentHistoryEntries, { canEdit: true });
 
-        // Deleta no Firebase e localStorage em background
-        deleteHistoryEntry(entry);
+        // Deleta no Firebase e localStorage (aguarda e avisa se falhar)
+        try {
+          await deleteHistoryEntry(entry);
+        } catch {
+          alert('⚠️ Não foi possível excluir do servidor. Tente novamente.');
+        }
       });
     });
   }
@@ -626,6 +630,11 @@ async function renderHistory() {
 }
 
 async function exportHistoryToExcel() {
+  // Usa o que está exibido na tela para o Excel refletir deleções feitas na sessão
+  if (_currentHistoryEntries.length > 0) {
+    exportHistoryDataToExcel(_currentHistoryEntries);
+    return;
+  }
   const from = document.getElementById('filter-from')?.value;
   const to   = document.getElementById('filter-to')?.value;
   const entries = await loadFirebaseHistory(myRoomId, from, to);
@@ -661,21 +670,19 @@ async function deleteHistoryEntry(entry) {
   // 1. Remove do Firebase — usa _firebaseKey se disponível,
   //    senão busca todas as chaves com o mesmo date|story e remove todas
   if (entry._firebaseKey) {
-    try { await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).remove(); } catch {}
+    await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).remove();
   } else {
-    try {
-      const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
-      if (snap.exists()) {
-        const removes = [];
-        snap.forEach((child) => {
-          const v = child.val();
-          if (`${v.date}|${v.story}` === sig) removes.push(child.key);
-        });
-        for (const k of removes) {
-          await db.ref(`rooms/${myRoomId}/history/${k}`).remove().catch(() => {});
-        }
+    const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
+    if (snap.exists()) {
+      const removes = [];
+      snap.forEach((child) => {
+        const v = child.val();
+        if (`${v.date}|${v.story}` === sig) removes.push(child.key);
+      });
+      for (const k of removes) {
+        await db.ref(`rooms/${myRoomId}/history/${k}`).remove();
       }
-    } catch {}
+    }
   }
 
   // 2. Remove de TODAS as chaves pp_hist_* do localStorage
