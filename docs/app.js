@@ -646,20 +646,46 @@ async function exportTlHistoryToExcel() {
 // ─── Delete history entry ─────────────────────────────────────────────────────
 async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
-  // Remove do Firebase
+  const sig = `${entry.date}|${entry.story}`;
+
+  // 1. Remove do Firebase — usa _firebaseKey se disponível,
+  //    senão busca todas as chaves com o mesmo date|story e remove todas
   if (entry._firebaseKey) {
     try { await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).remove(); } catch {}
+  } else {
+    try {
+      const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
+      if (snap.exists()) {
+        const removes = [];
+        snap.forEach((child) => {
+          const v = child.val();
+          if (`${v.date}|${v.story}` === sig) removes.push(child.key);
+        });
+        for (const k of removes) {
+          await db.ref(`rooms/${myRoomId}/history/${k}`).remove().catch(() => {});
+        }
+      }
+    } catch {}
   }
-  // Remove do localStorage
+
+  // 2. Remove de TODAS as chaves pp_hist_* do localStorage
+  //    (recovery scan pode ter importado de outra chave de sala)
   try {
-    const sig  = `${entry.date}|${entry.story}`;
-    const hist = loadHistory(myRoomId);
-    const idx  = hist.findIndex(e => `${e.date}|${e.story}` === sig);
-    if (idx >= 0) {
-      hist.splice(idx, 1);
-      localStorage.setItem(historyKey(myRoomId), JSON.stringify(hist));
-    }
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('pp_hist_'))
+      .forEach(key => {
+        try {
+          const hist = JSON.parse(localStorage.getItem(key)) || [];
+          const filtered = hist.filter(e => `${e.date}|${e.story}` !== sig);
+          if (filtered.length !== hist.length) {
+            localStorage.setItem(key, JSON.stringify(filtered));
+          }
+        } catch {}
+      });
   } catch {}
+
+  // 3. Impede que a migração re-insira a entrada deletada no próximo carregamento
+  _migrationDone = true;
 }
 
 // ─── Edit story modal ─────────────────────────────────────────────────────────
