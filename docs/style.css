@@ -56,10 +56,11 @@ body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', syste
 .role-selector { display: flex; flex-direction: column; gap: .6rem; }
 .role-btn { display: flex; align-items: center; gap: .9rem; padding: .8rem 1rem; background: var(--surface2); border: 2px solid var(--border); border-radius: 10px; cursor: pointer; color: var(--text); text-align: left; transition: all .2s; }
 .role-btn:hover { border-color: var(--muted); background: #fff; }
-.role-btn.active[data-role="developer"] { border-color: var(--dev); background: var(--dev-bg); }
-.role-btn.active[data-role="qa"]        { border-color: var(--qa);  background: var(--qa-bg); }
-.role-btn.active[data-role="master"]    { border-color: var(--red); background: var(--red-bg); }
-.role-btn.active[data-role="observer"] { border-color: var(--muted); background: rgba(107,114,128,.07); }
+.role-btn.active[data-role="developer"]  { border-color: var(--dev);   background: var(--dev-bg); }
+.role-btn.active[data-role="qa"]         { border-color: var(--qa);    background: var(--qa-bg); }
+.role-btn.active[data-role="master"]     { border-color: var(--red);   background: var(--red-bg); }
+.role-btn.active[data-role="observer"]   { border-color: var(--muted); background: rgba(107,114,128,.07); }
+.role-btn.active[data-role="tech-lead"]  { border-color: var(--tl);    background: var(--tl-bg); }
 .role-icon { font-size: 1.4rem; flex-shrink: 0; }
 .role-label { font-weight: 700; display: block; font-size: .9rem; }
 .role-desc  { font-size: .75rem; color: var(--muted); }
