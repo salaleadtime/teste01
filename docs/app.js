@@ -102,16 +102,18 @@ let _migrationDone = false;
 async function loadMergedHistory(roomId) {
   if (!roomId) return [];
 
-  // Load from Firebase (deduplicated by date+story)
+  // Load from Firebase (deduplicated by date+story) — timeout de 6s para não travar
   let fbEntries = [];
   try {
-    const snap = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+    const fbPromise = db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+    const snap = await Promise.race([fbPromise, timeoutPromise]);
     if (snap.exists()) {
       const seen = new Set();
       snap.forEach((child) => {
         const val = child.val();
         const sig = `${val.date}|${val.story}`;
-        if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift(val); }
+        if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
       });
     }
   } catch {}
@@ -171,9 +173,12 @@ async function loadFirebaseHistory(roomId, fromVal, toVal) {
   });
 }
 
-function renderHistoryEntriesToContainer(container, entries) {
+let _currentHistoryEntries = [];
+
+function renderHistoryEntriesToContainer(container, entries, { canEdit = false } = {}) {
   if (!entries.length) { container.innerHTML = '<p class="history-empty">Nenhuma rodada registrada ainda.</p>'; return; }
-  container.innerHTML = entries.map((entry) => {
+  _currentHistoryEntries = entries;
+  container.innerHTML = entries.map((entry, idx) => {
     const stats = [];
     if (entry.devMode)  stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${escHtml(entry.devMode)}${entry.devHours ? ' = ' + escHtml(entry.devHours) : ''}</span>`);
     if (entry.qaAvg)   stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${escHtml(entry.qaAvg)}</span>`);
@@ -183,16 +188,29 @@ function renderHistoryEntriesToContainer(container, entries) {
     }
     const squadStr = entry.squads?.length ? entry.squads.map(escHtml).join(', ') : '';
     const namesStr = entry.voters?.map((v) => `${escHtml(v.name)} (${escHtml(v.vote || '—')})`).join(', ') || '';
+    const noteHtml = entry.note ? `<div class="history-note"><span class="history-note-icon">💬</span> ${escHtml(entry.note)}</div>` : '';
+    const editBtn  = canEdit ? `<button class="btn-edit-entry" data-idx="${idx}" title="Editar história e recado">✏️</button>` : '';
     return `<div class="history-entry">
       <div class="history-entry-header">
         <span class="history-date">${entry.date}</span>
         <span class="history-story">${escHtml(entry.story)}</span>
         ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
+        ${editBtn}
       </div>
       ${stats.length ? `<div class="history-stats">${stats.join('')}</div>` : ''}
       ${namesStr ? `<div class="history-participants">${namesStr}</div>` : ''}
+      ${noteHtml}
     </div>`;
   }).join('');
+
+  if (canEdit) {
+    container.querySelectorAll('.btn-edit-entry').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx, 10);
+        openEditStoryModal(_currentHistoryEntries[idx]);
+      });
+    });
+  }
 }
 
 async function exportHistoryDataToExcel(entries) {
@@ -568,8 +586,12 @@ async function renderHistory() {
   const from = document.getElementById('filter-from')?.value;
   const to   = document.getElementById('filter-to')?.value;
   container.innerHTML = '<p class="history-empty">Carregando...</p>';
-  const entries = await loadFirebaseHistory(myRoomId, from, to);
-  renderHistoryEntriesToContainer(container, entries);
+  try {
+    const entries = await loadFirebaseHistory(myRoomId, from, to);
+    renderHistoryEntriesToContainer(container, entries, { canEdit: true });
+  } catch {
+    container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
+  }
 }
 
 async function exportHistoryToExcel() {
@@ -589,7 +611,7 @@ async function renderTlHistory() {
     const entries = await loadFirebaseHistory(myRoomId, from, to);
     renderHistoryEntriesToContainer(container, entries);
   } catch {
-    container.innerHTML = '<p class="history-empty">Erro ao carregar histórico.</p>';
+    container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
   }
 }
 
@@ -599,6 +621,58 @@ async function exportTlHistoryToExcel() {
   const entries = await loadFirebaseHistory(myRoomId, from, to);
   exportHistoryDataToExcel(entries);
 }
+
+// ─── Edit story modal ─────────────────────────────────────────────────────────
+let _editingEntry = null;
+
+function openEditStoryModal(entry) {
+  _editingEntry = entry;
+  document.getElementById('edit-story-name').value = entry.story || '';
+  document.getElementById('edit-story-note').value = entry.note || '';
+  document.getElementById('edit-story-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('edit-story-name').focus(), 50);
+}
+
+function closeEditStoryModal() {
+  _editingEntry = null;
+  document.getElementById('edit-story-modal').classList.add('hidden');
+}
+
+async function saveEditStory() {
+  if (!_editingEntry || !myRoomId) return;
+  const newName = document.getElementById('edit-story-name').value.trim();
+  const newNote = document.getElementById('edit-story-note').value.trim();
+  if (!newName) { alert('O nome da história não pode estar vazio.'); return; }
+
+  const updates = { story: newName };
+  if (newNote) updates.note = newNote; else updates.note = null;
+  const oldSig = `${_editingEntry.date}|${_editingEntry.story}`;
+
+  // Atualiza no Firebase
+  if (_editingEntry._firebaseKey) {
+    try { await db.ref(`rooms/${myRoomId}/history/${_editingEntry._firebaseKey}`).update(updates); }
+    catch (e) { console.warn('Firebase update failed:', e); }
+  }
+
+  // Atualiza no localStorage
+  try {
+    const localHist = loadHistory(myRoomId);
+    const i = localHist.findIndex((e) => `${e.date}|${e.story}` === oldSig);
+    if (i >= 0) {
+      localHist[i] = { ...localHist[i], ...updates };
+      localStorage.setItem(historyKey(myRoomId), JSON.stringify(localHist));
+    }
+  } catch {}
+
+  closeEditStoryModal();
+  _migrationDone = false;
+  renderHistory();
+}
+
+document.getElementById('btn-close-edit-story').addEventListener('click', closeEditStoryModal);
+document.getElementById('btn-cancel-edit-story').addEventListener('click', closeEditStoryModal);
+document.getElementById('btn-save-edit-story').addEventListener('click', saveEditStory);
+document.getElementById('edit-story-modal').addEventListener('click', (e) => { if (e.target.id === 'edit-story-modal') closeEditStoryModal(); });
 
 // ─── Settings modal ───────────────────────────────────────────────────────────
 document.getElementById('btn-open-settings').addEventListener('click', openSettings);

@@ -408,6 +408,30 @@
     </div>
   </div>
 
+  <!-- EDIT STORY MODAL -->
+  <div id="edit-story-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 460px;">
+      <div class="modal-header">
+        <h2>✏️ Editar História</h2>
+        <button class="modal-close" id="btn-close-edit-story">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom: 1rem;">
+          <label style="font-size: .82rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: .4rem;">Nome da história / tarefa</label>
+          <input id="edit-story-name" type="text" class="s-input" maxlength="200" placeholder="Ex: US-42 — Tela de login" />
+        </div>
+        <div>
+          <label style="font-size: .82rem; font-weight: 700; color: var(--muted); display: block; margin-bottom: .4rem;">💬 Recado / Observação individual</label>
+          <textarea id="edit-story-note" class="s-input" rows="4" placeholder="Adicione um recado ou observação sobre esta história..." style="resize: vertical; font-family: inherit; line-height: 1.5;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancel-edit-story" class="btn-outline">Cancelar</button>
+        <button id="btn-save-edit-story" class="btn-primary">💾 Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
