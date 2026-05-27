@@ -257,10 +257,10 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
       btn.addEventListener('click', async () => {
         const idx   = parseInt(btn.dataset.idx, 10);
         const entry = _currentHistoryEntries[idx];
-        if (!confirm(`Excluir a entrada "${entry.story}" (${entry.date})?`)) return;
+        if (!confirm(`Excluir TODAS as entradas de "${entry.story}"?`)) return;
 
-        // Remove visualmente de imediato
-        _currentHistoryEntries = _currentHistoryEntries.filter((_, i) => i !== idx);
+        // Remove visualmente TODAS as entradas com o mesmo nome de história
+        _currentHistoryEntries = _currentHistoryEntries.filter(e => e.story !== entry.story);
         const cont = btn.closest('.history-entries') || document.getElementById('history-entries');
         if (cont) renderHistoryEntriesToContainer(cont, _currentHistoryEntries, { canEdit: true });
 
