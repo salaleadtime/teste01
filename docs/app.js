@@ -115,14 +115,15 @@ async function loadMergedHistory(roomId) {
   // Load from Firebase (deduplicated por date|story) — timeout 6s para não travar
   let fbEntries = [];
   let fbLoaded = false;
+  let fbSnap = null;
   try {
     const fbPromise = db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
-    const snap = await Promise.race([fbPromise, timeoutPromise]);
+    fbSnap = await Promise.race([fbPromise, timeoutPromise]);
     fbLoaded = true;
-    if (snap.exists()) {
+    if (fbSnap.exists()) {
       const seen = new Set();
-      snap.forEach((child) => {
+      fbSnap.forEach((child) => {
         const val = child.val();
         if (val._deleted) return; // soft-delete: ignora entradas marcadas como deletadas
         const sig = `${val.date}|${val.story}`;
@@ -135,10 +136,18 @@ async function loadMergedHistory(roomId) {
   // Só executa se Firebase respondeu (fbLoaded=true) para não recriar entradas deletadas
   if (fbLoaded && !isMigrationDone(roomId)) {
     const localEntries = loadHistory(roomId);
+    // Inclui nomes de histórias DELETADAS no Firebase para que não sejam re-importadas do localStorage
+    const fbAllStories = new Set();
+    if (fbSnap && fbSnap.exists()) {
+      fbSnap.forEach((child) => {
+        const v = child.val();
+        if (v.story) fbAllStories.add(v.story); // bloqueia por nome (inclui _deleted:true)
+      });
+    }
     const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
-    const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`));
+    const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`) && !fbAllStories.has(e.story));
 
-    // Recovery scan de outras chaves pp_hist_*
+    // Recovery scan de outras chaves pp_hist_* — exclui histórias já no Firebase (incluindo deletadas)
     const allSigs = new Set([...fbSigs, ...localOnly.map(e => `${e.date}|${e.story}`)]);
     try {
       Object.keys(localStorage)
@@ -148,7 +157,7 @@ async function loadMergedHistory(roomId) {
             const other = JSON.parse(localStorage.getItem(key)) || [];
             other.forEach(e => {
               const sig = `${e.date}|${e.story}`;
-              if (!allSigs.has(sig)) { allSigs.add(sig); localOnly.push(e); }
+              if (!allSigs.has(sig) && !fbAllStories.has(e.story)) { allSigs.add(sig); localOnly.push(e); }
             });
           } catch {}
         });
@@ -688,24 +697,19 @@ async function exportTlHistoryToExcel() {
 // ─── Delete history entry ─────────────────────────────────────────────────────
 async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
-  const sig = `${entry.date}|${entry.story}`;
+  const storyName = entry.story;
 
-  // Soft-delete no Firebase: marca _deleted=true em vez de .remove()
-  // Isso é confiável mesmo com regras de segurança e evita ressurreição via migração
-  if (entry._firebaseKey) {
-    await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).update({ _deleted: true });
-  } else {
-    // Sem _firebaseKey: busca por sig e marca todas as ocorrências
-    const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
-    if (snap.exists()) {
-      const toMark = [];
-      snap.forEach((child) => {
-        const v = child.val();
-        if (`${v.date}|${v.story}` === sig && !v._deleted) toMark.push(child.key);
-      });
-      for (const k of toMark) {
-        await db.ref(`rooms/${myRoomId}/history/${k}`).update({ _deleted: true });
-      }
+  // Soft-delete no Firebase: marca _deleted=true em TODAS as entradas com o mesmo nome de história
+  // Isso garante que duplicatas geradas em múltiplos rounds sejam todas removidas de uma vez
+  const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
+  if (snap.exists()) {
+    const toMark = [];
+    snap.forEach((child) => {
+      const v = child.val();
+      if (v.story === storyName && !v._deleted) toMark.push(child.key);
+    });
+    for (const k of toMark) {
+      await db.ref(`rooms/${myRoomId}/history/${k}`).update({ _deleted: true });
     }
   }
 
@@ -716,7 +720,7 @@ async function deleteHistoryEntry(entry) {
       .forEach(key => {
         try {
           const hist = JSON.parse(localStorage.getItem(key)) || [];
-          const filtered = hist.filter(e => `${e.date}|${e.story}` !== sig);
+          const filtered = hist.filter(e => e.story !== storyName);
           if (filtered.length !== hist.length) localStorage.setItem(key, JSON.stringify(filtered));
         } catch {}
       });
