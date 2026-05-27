@@ -1,4 +1,5 @@
 // ─── Firebase init ────────────────────────────────────────────────────────────
+// v2026-05-27c — botão editar/deletar histórico, fix duplicação
 const firebaseConfig = {
   apiKey: "AIzaSyDvJifQVEbLdza9H6jKJXnCJPKdnUkdk80",
   authDomain: "estimativa-agil.firebaseapp.com",
