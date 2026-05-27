@@ -42,6 +42,7 @@ let currentSettings = { cards: [...DEFAULT_CARDS], hourMap: { ...DEFAULT_HOUR_MA
 let tempSettings = null;
 let _latestParticipants = [];
 let _lastRevealedState = false;
+let _savingHistory = false; // guard anti-duplicata no mesmo client
 let _roomListenerRef = null;
 let _kickListenerRef = null;
 let _timerInterval = null;
@@ -225,8 +226,14 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
         const idx   = parseInt(btn.dataset.idx, 10);
         const entry = _currentHistoryEntries[idx];
         if (!confirm(`Excluir a entrada "${entry.story}" (${entry.date})?`)) return;
-        await deleteHistoryEntry(entry);
-        renderHistory();
+
+        // Remove visualmente de imediato (sem esperar Firebase)
+        _currentHistoryEntries = _currentHistoryEntries.filter((_, i) => i !== idx);
+        const cont = btn.closest('.history-entries') || document.getElementById('history-entries');
+        if (cont) renderHistoryEntriesToContainer(cont, _currentHistoryEntries, { canEdit: true });
+
+        // Deleta no Firebase e localStorage em background
+        deleteHistoryEntry(entry);
       });
     });
   }
@@ -391,18 +398,20 @@ function listenToRoom(roomId) {
     const allVoted = voters.length > 0 && voters.every((p) => p.hasVoted);
 
     // Save history on reveal (SM only, once per reveal)
-    // round._historySaved impede re-salvar ao recarregar a página com rodada já revelada
-    if (myRole === 'master' && round.revealed && !_lastRevealedState && !round._historySaved) {
+    // _historySaved: flag no Firebase impede re-salvar ao recarregar
+    // _savingHistory: guard local impede duplo disparo no mesmo client
+    if (myRole === 'master' && round.revealed && !_lastRevealedState && !round._historySaved && !_savingHistory) {
+      _savingHistory = true;
       const partsWithVotes = Object.entries(rawParts).map(([id, p]) => ({
         id, name: p.name, role: p.role, squad: p.squad || null,
         hasVoted: p.vote !== null, vote: p.vote,
       }));
       saveRoundToHistory(partsWithVotes, round);
-      // Marca no Firebase que o histórico desta rodada já foi salvo
       db.ref(`rooms/${myRoomId}/round/_historySaved`).set(true).catch(() => {});
       if (!document.getElementById('master-history-panel')?.classList.contains('hidden')) renderHistory();
     }
     _lastRevealedState = round.revealed;
+    if (!round.revealed) _savingHistory = false;
 
     if (myRole === 'developer')      { updateDevView(participants, round);              updateParticipants(participants, 'dev-participants'); }
     else if (myRole === 'qa')        { updateQaView(participants, round);               updateParticipants(participants, 'qa-participants'); }
