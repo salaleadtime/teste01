@@ -103,71 +103,94 @@ async function clearHistory(r) {
   if (r) try { await db.ref(`rooms/${r}/history`).remove(); } catch {}
 }
 
-let _migrationDone = false;
+// _migrationDone é persistido no localStorage para sobreviver ao F5
+// (chave por sala para isolar migrações de salas diferentes)
+const migrationKey = (r) => `pp_migrated_${r}`;
+function isMigrationDone(r) { return localStorage.getItem(migrationKey(r)) === '1'; }
+function setMigrationDone(r) { try { localStorage.setItem(migrationKey(r), '1'); } catch {} }
 
 async function loadMergedHistory(roomId) {
   if (!roomId) return [];
 
-  // Load from Firebase (deduplicated by date+story) — timeout de 6s para não travar
+  // Load from Firebase (deduplicated por date|story) — timeout 6s para não travar
   let fbEntries = [];
+  let fbLoaded = false;
   try {
     const fbPromise = db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
     const snap = await Promise.race([fbPromise, timeoutPromise]);
+    fbLoaded = true;
     if (snap.exists()) {
       const seen = new Set();
       snap.forEach((child) => {
         const val = child.val();
+        if (val._deleted) return; // soft-delete: ignora entradas marcadas como deletadas
         const sig = `${val.date}|${val.story}`;
         if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
       });
     }
   } catch {}
 
-  // Load from localStorage (current room) and find entries not yet in Firebase
-  const localEntries = loadHistory(roomId);
-  const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
-  const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`));
+  // Migração legada de localStorage → Firebase (única vez por sala, flag durável)
+  // Só executa se Firebase respondeu (fbLoaded=true) para não recriar entradas deletadas
+  if (fbLoaded && !isMigrationDone(roomId)) {
+    const localEntries = loadHistory(roomId);
+    const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
+    const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`));
 
-  // Recovery scan: also look in ALL other pp_hist_* keys in localStorage
-  // (handles cases where room ID changed between sessions)
-  const allSigs = new Set([...fbSigs, ...localOnly.map(e => `${e.date}|${e.story}`)]);
-  try {
-    Object.keys(localStorage)
-      .filter(k => k.startsWith('pp_hist_') && k !== historyKey(roomId))
-      .forEach(key => {
-        try {
-          const other = JSON.parse(localStorage.getItem(key)) || [];
-          other.forEach(e => {
-            const sig = `${e.date}|${e.story}`;
-            if (!allSigs.has(sig)) { allSigs.add(sig); localOnly.push(e); }
-          });
-        } catch {}
+    // Recovery scan de outras chaves pp_hist_*
+    const allSigs = new Set([...fbSigs, ...localOnly.map(e => `${e.date}|${e.story}`)]);
+    try {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('pp_hist_') && k !== historyKey(roomId))
+        .forEach(key => {
+          try {
+            const other = JSON.parse(localStorage.getItem(key)) || [];
+            other.forEach(e => {
+              const sig = `${e.date}|${e.story}`;
+              if (!allSigs.has(sig)) { allSigs.add(sig); localOnly.push(e); }
+            });
+          } catch {}
+        });
+    } catch {}
+
+    if (localOnly.length) {
+      localOnly.forEach((entry) => {
+        const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
+        db.ref(`rooms/${roomId}/history`).push({ ...entry, _ts: ts }).catch(() => {});
       });
-  } catch {}
-
-  // Migrate all localStorage-only entries to Firebase (once per session)
-  if (!_migrationDone && localOnly.length) {
-    _migrationDone = true;
-    localOnly.forEach((entry) => {
-      const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
-      db.ref(`rooms/${roomId}/history`).push({ ...entry, _ts: ts }).catch(() => {});
-    });
+      // Aguarda um tick para o Firebase processar antes de marcar como feito
+      await new Promise(r => setTimeout(r, 500));
+    }
+    setMigrationDone(roomId);
+    // Recarrega do Firebase após migração para incluir entradas migradas
+    try {
+      const snap2 = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+      if (snap2.exists()) {
+        fbEntries = [];
+        const seen2 = new Set();
+        snap2.forEach((child) => {
+          const val = child.val();
+          if (val._deleted) return;
+          const sig = `${val.date}|${val.story}`;
+          if (!seen2.has(sig)) { seen2.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
+        });
+      }
+    } catch {}
   }
 
-  // Merge and sort newest first
-  const all = [...fbEntries, ...localOnly];
-  all.sort((a, b) => {
+  // Firebase é a fonte de verdade — ordena e retorna
+  fbEntries.sort((a, b) => {
     const ta = a._ts || parseHistoryDate(a.date)?.getTime() || 0;
     const tb = b._ts || parseHistoryDate(b.date)?.getTime() || 0;
     return tb - ta;
   });
-  return all;
+  return fbEntries;
 }
 
 async function loadFirebaseHistory(roomId, fromVal, toVal) {
   const all = await loadMergedHistory(roomId);
-  if (!fromVal && !toVal) return all;
+  if (!fromVal && !toVal) return all; // 'all' = fbEntries de loadMergedHistory
   const fromDate = fromVal ? new Date(fromVal) : null;
   const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
   return all.filter((entry) => {
@@ -561,7 +584,7 @@ function saveRoundToHistory(participants, round) {
     date: now, story: round.story || '(sem título)', devMode, devHours, qaAvg, squads,
     voters: participants.filter((p) => p.role !== 'master' && p.role !== 'observer').map((p) => ({ name: p.name, role: p.role, squad: p.squad, vote: p.vote })),
   };
-  appendHistory(myRoomId, entry);
+  // Firebase é a fonte de verdade — não grava mais no localStorage para evitar ressurreição de entradas deletadas
   try { db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: Date.now() }); } catch {}
 }
 
@@ -597,10 +620,10 @@ function importHistoryFromExcel() {
       if (!toImport.length) { alert('Todas as entradas do arquivo já existem no histórico.'); return; }
       for (const entry of toImport) {
         const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
-        appendHistory(myRoomId, entry);
         try { await db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: ts }); } catch {}
       }
-      _migrationDone = false; // allow re-scan
+      // Reseta flag de migração para que novas entradas importadas sejam incluídas
+      try { localStorage.removeItem(migrationKey(myRoomId)); } catch {}
       renderHistory();
       alert(`✅ ${toImport.length} entradas restauradas com sucesso!`);
     } catch { alert('Erro ao ler o arquivo. Verifique se é um .xlsx exportado por esta aplicação.'); }
@@ -667,26 +690,26 @@ async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
   const sig = `${entry.date}|${entry.story}`;
 
-  // 1. Remove do Firebase — usa _firebaseKey se disponível,
-  //    senão busca todas as chaves com o mesmo date|story e remove todas
+  // Soft-delete no Firebase: marca _deleted=true em vez de .remove()
+  // Isso é confiável mesmo com regras de segurança e evita ressurreição via migração
   if (entry._firebaseKey) {
-    await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).remove();
+    await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).update({ _deleted: true });
   } else {
+    // Sem _firebaseKey: busca por sig e marca todas as ocorrências
     const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
     if (snap.exists()) {
-      const removes = [];
+      const toMark = [];
       snap.forEach((child) => {
         const v = child.val();
-        if (`${v.date}|${v.story}` === sig) removes.push(child.key);
+        if (`${v.date}|${v.story}` === sig && !v._deleted) toMark.push(child.key);
       });
-      for (const k of removes) {
-        await db.ref(`rooms/${myRoomId}/history/${k}`).remove();
+      for (const k of toMark) {
+        await db.ref(`rooms/${myRoomId}/history/${k}`).update({ _deleted: true });
       }
     }
   }
 
-  // 2. Remove de TODAS as chaves pp_hist_* do localStorage
-  //    (recovery scan pode ter importado de outra chave de sala)
+  // Remove também de todas as chaves localStorage (limpeza legada)
   try {
     Object.keys(localStorage)
       .filter(k => k.startsWith('pp_hist_'))
@@ -694,15 +717,10 @@ async function deleteHistoryEntry(entry) {
         try {
           const hist = JSON.parse(localStorage.getItem(key)) || [];
           const filtered = hist.filter(e => `${e.date}|${e.story}` !== sig);
-          if (filtered.length !== hist.length) {
-            localStorage.setItem(key, JSON.stringify(filtered));
-          }
+          if (filtered.length !== hist.length) localStorage.setItem(key, JSON.stringify(filtered));
         } catch {}
       });
   } catch {}
-
-  // 3. Impede que a migração re-insira a entrada deletada no próximo carregamento
-  _migrationDone = true;
 }
 
 // ─── Edit story modal ─────────────────────────────────────────────────────────
@@ -748,7 +766,6 @@ async function saveEditStory() {
   } catch {}
 
   closeEditStoryModal();
-  _migrationDone = false;
   renderHistory();
 }
 
