@@ -424,8 +424,9 @@ document.getElementById('btn-qa-vote').addEventListener('click', submitQaVote);
 document.getElementById('qa-hours-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitQaVote(); });
 function submitQaVote() {
   const val = document.getElementById('qa-hours-input').value;
-  if (!val || parseFloat(val) <= 0) return;
-  myVote = `${parseFloat(val)}h`;
+  const parsed = parseFloat(val);
+  if (!val || isNaN(parsed) || parsed <= 0) return;
+  myVote = `${parsed}h`;
   db.ref(`rooms/${myRoomId}/participants/${clientId}/vote`).set(myVote);
   document.getElementById('qa-voted-msg').classList.remove('hidden');
   document.getElementById('btn-qa-vote').disabled = true;
@@ -445,6 +446,7 @@ document.getElementById('btn-reveal').addEventListener('click', () => {
 });
 document.getElementById('btn-reset').addEventListener('click', async () => {
   myVote = null;
+  document.getElementById('master-story-input').value = '';
   await db.ref(`rooms/${myRoomId}/round`).set({ active: false, story: '', revealed: false });
   await clearVotes();
 });
@@ -951,7 +953,7 @@ async function copyTlResultsAsImage() {
 function updateMasterView(participants, round, allVoted) {
   setStoryLabel('master-story-display', round.story);
   const setup = document.getElementById('master-setup'); const active = document.getElementById('master-active'); const results = document.getElementById('master-results');
-  if (!round.active) { show(setup); hide(active); document.getElementById('master-story-input').value = ''; stopRoundTimer(); return; }
+  if (!round.active) { show(setup); hide(active); stopRoundTimer(); return; }
   hide(setup); show(active);
   if (round.startedAt) startRoundTimer(round.startedAt, 'master-timer');
   document.getElementById('btn-reveal').disabled = !allVoted;

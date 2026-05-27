@@ -176,8 +176,9 @@ document.getElementById('qa-hours-input').addEventListener('keydown', (e) => { i
 
 function submitQaVote() {
   const val = document.getElementById('qa-hours-input').value;
-  if (!val || parseFloat(val) <= 0) return;
-  myVote = `${parseFloat(val)}h`;
+  const parsed = parseFloat(val);
+  if (!val || isNaN(parsed) || parsed <= 0) return;
+  myVote = `${parsed}h`;
   socket.emit('vote', { value: myVote });
   document.getElementById('qa-voted-msg').classList.remove('hidden');
   document.getElementById('btn-qa-vote').disabled = true;
@@ -190,7 +191,11 @@ document.getElementById('btn-start').addEventListener('click', () => {
   socket.emit('start_round', { story: document.getElementById('master-story-input').value.trim() });
 });
 document.getElementById('btn-reveal').addEventListener('click', () => socket.emit('reveal'));
-document.getElementById('btn-reset').addEventListener('click', () => { myVote = null; socket.emit('reset'); });
+document.getElementById('btn-reset').addEventListener('click', () => {
+  myVote = null;
+  document.getElementById('master-story-input').value = '';
+  socket.emit('reset');
+});
 
 // ─── História panel ───────────────────────────────────────────────────────────
 document.getElementById('btn-toggle-history').addEventListener('click', () => {
@@ -521,7 +526,7 @@ function updateQaView(participants, round) {
   if (!round.active) { show(waiting); hide(voting); hide(reveal); resetQaInput(); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('qa-results-table', participants); }
-  else { hide(reveal); show(voting); }
+  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); }
 }
 function resetQaInput() {
   myVote = null;
@@ -561,7 +566,7 @@ function updateMasterView(participants, round, allVoted) {
   const setup   = document.getElementById('master-setup');
   const active  = document.getElementById('master-active');
   const results = document.getElementById('master-results');
-  if (!round.active) { show(setup); hide(active); document.getElementById('master-story-input').value = ''; return; }
+  if (!round.active) { show(setup); hide(active); return; }
   hide(setup); show(active);
   document.getElementById('btn-reveal').disabled = !allVoted;
   renderVoteGrid(participants, round.revealed);

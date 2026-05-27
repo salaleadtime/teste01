@@ -138,6 +138,16 @@ io.on('connection', (socket) => {
     if (!rId || !rooms[rId]) return;
     delete rooms[rId].participants[socket.id];
     broadcastRoom(rId);
+
+    // Schedule cleanup of empty rooms to prevent memory leaks.
+    // The 30-minute delay allows reconnections without losing room state.
+    if (Object.keys(rooms[rId].participants).length === 0) {
+      setTimeout(() => {
+        if (rooms[rId] && Object.keys(rooms[rId].participants).length === 0) {
+          delete rooms[rId];
+        }
+      }, 30 * 60 * 1000);
+    }
   });
 });
 
