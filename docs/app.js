@@ -112,7 +112,6 @@ function setMigrationDone(r) { try { localStorage.setItem(migrationKey(r), '1');
 async function loadMergedHistory(roomId) {
   if (!roomId) return [];
 
-  // Load from Firebase (deduplicated por date|story) — timeout 6s para não travar
   let fbEntries = [];
   let fbLoaded = false;
   let fbSnap = null;
@@ -125,70 +124,71 @@ async function loadMergedHistory(roomId) {
       const seen = new Set();
       fbSnap.forEach((child) => {
         const val = child.val();
-        if (val._deleted) return; // soft-delete: ignora entradas marcadas como deletadas
+        if (val._deleted) return;
         const sig = `${val.date}|${val.story}`;
         if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
       });
     }
   } catch {}
 
-  // Migração legada de localStorage → Firebase (única vez por sala, flag durável)
-  // Só executa se Firebase respondeu (fbLoaded=true) para não recriar entradas deletadas
-  if (fbLoaded && !isMigrationDone(roomId)) {
-    const localEntries = loadHistory(roomId);
-    // Inclui nomes de histórias DELETADAS no Firebase para que não sejam re-importadas do localStorage
-    const fbAllStories = new Set();
-    if (fbSnap && fbSnap.exists()) {
-      fbSnap.forEach((child) => {
-        const v = child.val();
-        if (v.story) fbAllStories.add(v.story); // bloqueia por nome (inclui _deleted:true)
-      });
-    }
-    const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
-    const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`) && !fbAllStories.has(e.story));
+  if (fbLoaded) {
+    // Firebase respondeu — migração legada (roda só uma vez, flag durável)
+    if (!isMigrationDone(roomId)) {
+      const localEntries = loadHistory(roomId);
+      // Inclui story names do Firebase (inclusive _deleted) para não re-importar deletadas
+      const fbAllStories = new Set();
+      if (fbSnap && fbSnap.exists()) {
+        fbSnap.forEach((child) => { const v = child.val(); if (v.story) fbAllStories.add(v.story); });
+      }
+      const fbSigs = new Set(fbEntries.map(e => `${e.date}|${e.story}`));
+      const localOnly = localEntries.filter(e => !fbSigs.has(`${e.date}|${e.story}`) && !fbAllStories.has(e.story));
 
-    // Recovery scan de outras chaves pp_hist_* — exclui histórias já no Firebase (incluindo deletadas)
-    const allSigs = new Set([...fbSigs, ...localOnly.map(e => `${e.date}|${e.story}`)]);
+      // Recovery scan de outras chaves pp_hist_*
+      try {
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('pp_hist_') && k !== historyKey(roomId))
+          .forEach(key => {
+            try {
+              const other = JSON.parse(localStorage.getItem(key)) || [];
+              other.forEach(e => {
+                if (!fbAllStories.has(e.story) && !fbSigs.has(`${e.date}|${e.story}`)) localOnly.push(e);
+              });
+            } catch {}
+          });
+      } catch {}
+
+      if (localOnly.length) {
+        localOnly.forEach((entry) => {
+          const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
+          db.ref(`rooms/${roomId}/history`).push({ ...entry, _ts: ts }).catch(() => {});
+        });
+        await new Promise(r => setTimeout(r, 500));
+        // Recarrega após migração
+        try {
+          const snap2 = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
+          if (snap2.exists()) {
+            fbEntries = [];
+            const seen2 = new Set();
+            snap2.forEach((child) => {
+              const val = child.val();
+              if (val._deleted) return;
+              const sig = `${val.date}|${val.story}`;
+              if (!seen2.has(sig)) { seen2.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
+            });
+          }
+        } catch {}
+      }
+      setMigrationDone(roomId);
+    }
+
+    // Firebase é fonte de verdade — apaga localStorage de histórico para evitar ressurreição
     try {
       Object.keys(localStorage)
-        .filter(k => k.startsWith('pp_hist_') && k !== historyKey(roomId))
-        .forEach(key => {
-          try {
-            const other = JSON.parse(localStorage.getItem(key)) || [];
-            other.forEach(e => {
-              const sig = `${e.date}|${e.story}`;
-              if (!allSigs.has(sig) && !fbAllStories.has(e.story)) { allSigs.add(sig); localOnly.push(e); }
-            });
-          } catch {}
-        });
-    } catch {}
-
-    if (localOnly.length) {
-      localOnly.forEach((entry) => {
-        const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
-        db.ref(`rooms/${roomId}/history`).push({ ...entry, _ts: ts }).catch(() => {});
-      });
-      // Aguarda um tick para o Firebase processar antes de marcar como feito
-      await new Promise(r => setTimeout(r, 500));
-    }
-    setMigrationDone(roomId);
-    // Recarrega do Firebase após migração para incluir entradas migradas
-    try {
-      const snap2 = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
-      if (snap2.exists()) {
-        fbEntries = [];
-        const seen2 = new Set();
-        snap2.forEach((child) => {
-          const val = child.val();
-          if (val._deleted) return;
-          const sig = `${val.date}|${val.story}`;
-          if (!seen2.has(sig)) { seen2.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
-        });
-      }
+        .filter(k => k.startsWith('pp_hist_'))
+        .forEach(k => { try { localStorage.removeItem(k); } catch {} });
     } catch {}
   }
 
-  // Firebase é a fonte de verdade — ordena e retorna
   fbEntries.sort((a, b) => {
     const ta = a._ts || parseHistoryDate(a.date)?.getTime() || 0;
     const tb = b._ts || parseHistoryDate(b.date)?.getTime() || 0;
@@ -699,31 +699,23 @@ async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
   const storyName = entry.story;
 
-  // Soft-delete no Firebase: marca _deleted=true em TODAS as entradas com o mesmo nome de história
-  // Isso garante que duplicatas geradas em múltiplos rounds sejam todas removidas de uma vez
+  // Remove TODAS as entradas do Firebase com o mesmo nome de história (duplicatas incluídas)
   const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
   if (snap.exists()) {
-    const toMark = [];
+    const toRemove = [];
     snap.forEach((child) => {
-      const v = child.val();
-      if (v.story === storyName && !v._deleted) toMark.push(child.key);
+      if (child.val().story === storyName) toRemove.push(child.key);
     });
-    for (const k of toMark) {
-      await db.ref(`rooms/${myRoomId}/history/${k}`).update({ _deleted: true });
+    for (const k of toRemove) {
+      await db.ref(`rooms/${myRoomId}/history/${k}`).remove();
     }
   }
 
-  // Remove também de todas as chaves localStorage (limpeza legada)
+  // Apaga do localStorage também para não ressuscitar via migração
   try {
     Object.keys(localStorage)
       .filter(k => k.startsWith('pp_hist_'))
-      .forEach(key => {
-        try {
-          const hist = JSON.parse(localStorage.getItem(key)) || [];
-          const filtered = hist.filter(e => e.story !== storyName);
-          if (filtered.length !== hist.length) localStorage.setItem(key, JSON.stringify(filtered));
-        } catch {}
-      });
+      .forEach(key => { try { localStorage.removeItem(key); } catch {} });
   } catch {}
 }
 
