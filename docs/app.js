@@ -48,8 +48,8 @@ let _currentTimerId = null;
 
 const urlParams  = new URLSearchParams(window.location.search);
 const urlSmToken = urlParams.get('sm');
-const urlRoomId  = urlParams.get('room');
-const urlSquad   = urlParams.get('squad');
+const urlRoomId  = urlParams.get('r') || urlParams.get('room');   // 'room' mantido para compatibilidade
+const urlSquad   = urlParams.get('s') || urlParams.get('squad');  // 'squad' mantido para compatibilidade
 
 if (urlSmToken) document.querySelector('.role-btn[data-role="master"]')?.classList.remove('hidden');
 
@@ -321,8 +321,9 @@ async function joinRoom(name, role, squad, roomId, smToken) {
   // For SM: update the browser URL to include room= so the address bar becomes a bookmarkable link
   if (role === 'master' && roomId) {
     const url = new URL(window.location.href);
-    if (url.searchParams.get('room') !== roomId) {
-      url.searchParams.set('room', roomId);
+    if (url.searchParams.get('r') !== roomId) {
+      url.searchParams.delete('room'); // remove param legado se existir
+      url.searchParams.set('r', roomId);
       history.replaceState(null, '', url.toString());
     }
   }
@@ -707,8 +708,8 @@ function renderParticipantsManage() {
 
 function renderSmAccessTab() {
   const base = window.location.origin + window.location.pathname;
-  const participantLink = myRoomId ? `${base}?room=${myRoomId}` : '(carregando...)';
-  const smLink = myRoomId ? `${base}?sm=${SM_TOKEN}&room=${myRoomId}` : `${base}?sm=${SM_TOKEN}`;
+  const participantLink = myRoomId ? `${base}?r=${myRoomId}` : '(carregando...)';
+  const smLink = myRoomId ? `${base}?sm=${SM_TOKEN}&r=${myRoomId}` : `${base}?sm=${SM_TOKEN}`;
   const pubInput = document.getElementById('public-link-input');
   const smInput  = document.getElementById('sm-link-input');
   if (pubInput) pubInput.value = participantLink;
@@ -733,7 +734,7 @@ function renderSmAccessTab() {
       ${squads.map((sq, i) => `
         <div class="sm-link-box" style="margin-bottom:.5rem">
           <span class="squad-tag" style="min-width:fit-content;flex-shrink:0">${escHtml(sq)}</span>
-          <input id="squad-link-${i}" type="text" readonly value="${base}?room=${myRoomId}&squad=${encodeURIComponent(sq)}" />
+          <input id="squad-link-${i}" type="text" readonly value="${base}?r=${myRoomId}&s=${encodeURIComponent(sq)}" />
           <button id="btn-copy-squad-${i}" class="btn-copy-sm">📋 Copiar</button>
         </div>`).join('')}
     </div>`;
