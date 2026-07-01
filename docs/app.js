@@ -48,6 +48,17 @@ let _kickListenerRef = null;
 let _timerInterval = null;
 let _currentTimerId = null;
 
+// ─── Configuração por squad ───────────────────────────────────────────────────
+// Chaves do Firebase não aceitam . # $ / [ ] — encodeURIComponent cobre tudo menos o '.'
+const squadKey = (sq) => encodeURIComponent(sq).replace(/\./g, '%2E');
+// Resolve cartas/horas efetivas: override do squad quando existe, senão config global da sala
+function effectiveFor(squad) {
+  const ov = squad && currentSettings.squadOverrides && currentSettings.squadOverrides[squadKey(squad)];
+  return ov ? { cards: ov.cards || [], hourMap: ov.hourMap || {} }
+            : { cards: currentSettings.cards || [], hourMap: currentSettings.hourMap || {} };
+}
+const effectiveSettings = () => effectiveFor(mySquad);
+
 const urlParams  = new URLSearchParams(window.location.search);
 const urlSmToken = urlParams.get('sm');
 const urlRoomId  = urlParams.get('r') || urlParams.get('room');   // 'room' mantido para compatibilidade
@@ -474,11 +485,16 @@ function listenForKick(roomId) {
 }
 
 // ─── Firebase actions ─────────────────────────────────────────────────────────
-async function clearVotes() {
+// squad opcional: quando informado, limpa só os votos dos participantes daquele squad
+async function clearVotes(squad) {
   const snap = await db.ref(`rooms/${myRoomId}/participants`).once('value');
   if (!snap.exists()) return;
   const updates = {};
-  snap.forEach((c) => { updates[`${c.key}/vote`] = null; });
+  snap.forEach((c) => {
+    if (squad && (c.val()?.squad || null) !== squad) return;
+    updates[`${c.key}/vote`] = null;
+  });
+  if (!Object.keys(updates).length) return;
   await db.ref(`rooms/${myRoomId}/participants`).update(updates);
 }
 
@@ -580,7 +596,7 @@ async function saveRoundToHistory(participants, round) {
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
   const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   let devMode = null, devHours = null;
-  if (devVoters.length) { const { mode } = calcMode(devVoters.map((p) => p.vote)); devMode = mode; devHours = currentSettings.hourMap[mode] || null; }
+  if (devVoters.length) { const { mode } = calcMode(devVoters.map((p) => p.vote)); devMode = mode; devHours = effectiveSettings().hourMap[mode] || null; }
   let qaAvg = null;
   if (qaVoters.length) {
     const qaH = qaVoters.map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
@@ -798,9 +814,18 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 });
 
 function openSettings() {
-  tempSettings = { cards: [...currentSettings.cards], hourMap: { ...currentSettings.hourMap }, squads: [...(currentSettings.squads || [])] };
+  // Semeia com as cartas/horas efetivas do squad do SM (a lista de squads segue global)
+  const eff = effectiveFor(mySquad);
+  tempSettings = { cards: [...eff.cards], hourMap: { ...eff.hourMap }, squads: [...(currentSettings.squads || [])] };
   const squadBadge = document.getElementById('modal-squad-badge');
   if (squadBadge) { if (mySquad) { squadBadge.textContent = `Squad ${mySquad}`; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
+  const scopeHint = document.getElementById('cards-scope-hint');
+  if (scopeHint) {
+    scopeHint.textContent = (mySquad
+      ? `Estas cartas valem apenas para o squad ${mySquad}. `
+      : 'Estas cartas valem para todos os squads sem configuração própria. ')
+      + 'Ative/desative cartas e ajuste as horas correspondentes.';
+  }
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   document.querySelector('.tab-btn[data-tab="tab-cards"]')?.classList.add('active');
   document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active-tab'));
@@ -954,9 +979,39 @@ async function saveSettings() {
   nums.sort((a, b) => parseFloat(a) - parseFloat(b));
   const hasQ = tempSettings.cards.includes('?');
   tempSettings.cards = hasQ ? [...nums, '?'] : nums;
-  currentSettings = { ...tempSettings, squads: [...(tempSettings.squads || [])] };
-  await db.ref(`rooms/${myRoomId}/settings`).set(currentSettings);
-  await clearVotes();
+
+  const cards      = [...tempSettings.cards];
+  const hourMap    = { ...tempSettings.hourMap };
+  const newSquads  = [...(tempSettings.squads || [])];
+  const prevSquads = currentSettings.squads || [];
+
+  // Escrita multi-path atômica: com squad grava só o override do squad do SM,
+  // sem squad grava a config global — nunca sobrescreve overrides de outros squads
+  const updates = {};
+  updates[`rooms/${myRoomId}/settings/squads`] = newSquads;
+  if (mySquad) {
+    updates[`rooms/${myRoomId}/settings/squadOverrides/${squadKey(mySquad)}`] = { cards, hourMap };
+  } else {
+    updates[`rooms/${myRoomId}/settings/cards`] = cards;
+    updates[`rooms/${myRoomId}/settings/hourMap`] = hourMap;
+  }
+  // Squads removidos da lista perdem o override na mesma escrita atômica
+  prevSquads.filter((sq) => !newSquads.includes(sq)).forEach((sq) => {
+    updates[`rooms/${myRoomId}/settings/squadOverrides/${squadKey(sq)}`] = null;
+  });
+  await db.ref().update(updates);
+
+  // Espelho local consistente (o listener da sala também atualiza a partir do Firebase)
+  const overrides = { ...(currentSettings.squadOverrides || {}) };
+  prevSquads.filter((sq) => !newSquads.includes(sq)).forEach((sq) => { delete overrides[squadKey(sq)]; });
+  if (mySquad) {
+    overrides[squadKey(mySquad)] = { cards, hourMap };
+    currentSettings = { ...currentSettings, squads: newSquads, squadOverrides: overrides };
+  } else {
+    currentSettings = { ...currentSettings, cards, hourMap, squads: newSquads, squadOverrides: overrides };
+  }
+  // Limpa só os votos do squad do SM — não derruba a rodada de outro squad
+  await clearVotes(mySquad || undefined);
   closeSettings();
 }
 
@@ -1010,8 +1065,9 @@ function updateDevView(participants, round) {
 }
 function renderFibCards() {
   const container = document.getElementById('fibonacci-cards'); container.innerHTML = '';
-  currentSettings.cards.forEach((val) => {
-    const hours = currentSettings.hourMap[val] || '';
+  const eff = effectiveSettings(); // cartas do squad do participante
+  eff.cards.forEach((val) => {
+    const hours = eff.hourMap[val] || '';
     const btn = document.createElement('button');
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
     btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
@@ -1055,8 +1111,9 @@ function updateObserverView(participants, round) {
 function renderTlFibCards() {
   const container = document.getElementById('tl-fibonacci-cards'); if (!container) return;
   container.innerHTML = '';
-  currentSettings.cards.forEach((val) => {
-    const hours = currentSettings.hourMap[val] || '';
+  const eff = effectiveSettings(); // cartas do squad do participante
+  eff.cards.forEach((val) => {
+    const hours = eff.hourMap[val] || '';
     const btn = document.createElement('button');
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
     btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
@@ -1158,7 +1215,7 @@ function renderSplitResults(participants, devContainerId = 'master-dev-results',
   const devVotes = devs.filter((p) => p.vote && p.vote !== '?').map((p) => p.vote);
   const { mode: modeVote, count: modeCount } = devVotes.length ? calcMode(devVotes) : {};
   const devRows = devs.map((p) => {
-    const hours = p.vote ? (currentSettings.hourMap[p.vote] || '') : ''; const isMod = p.vote && p.vote === modeVote;
+    const hours = p.vote ? (effectiveFor(p.squad).hourMap[p.vote] || '') : ''; const isMod = p.vote && p.vote === modeVote;
     const chip = p.vote ? `<span class="vote-chip ${p.role} ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}${isMod ? '<span class="winner-tag">✓</span>' : ''}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum desenvolvedor</td></tr>`;
@@ -1168,7 +1225,7 @@ function renderSplitResults(participants, devContainerId = 'master-dev-results',
     const chip = p.vote ? `<span class="vote-chip qa"><span class="chip-points">${escHtml(p.vote)}</span></span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum QA</td></tr>`;
-  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(currentSettings.hourMap[modeVote] || '?')}</strong></td></tr></tfoot>` : '';
+  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(effectiveSettings().hourMap[modeVote] || '?')}</strong></td></tr></tfoot>` : '';
   const qaFooter  = avgQaH !== null ? `<tfoot><tr><td colspan="2" class="table-footer">Média QA: <strong>${avgQaH % 1 === 0 ? avgQaH : avgQaH.toFixed(1)}h</strong></td></tr></tfoot>` : '';
   document.getElementById(devContainerId).innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
   document.getElementById(qaContainerId).innerHTML  = `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
@@ -1176,7 +1233,7 @@ function renderSplitResults(participants, devContainerId = 'master-dev-results',
 
 function renderSimpleTable(containerId, participants) {
   const rows = participants.filter((p) => p.role !== 'master').map((p) => {
-    const hours = ((p.role === 'developer' || p.role === 'tech-lead') && p.vote) ? (currentSettings.hourMap[p.vote] || '') : '';
+    const hours = ((p.role === 'developer' || p.role === 'tech-lead') && p.vote) ? (effectiveFor(p.squad).hourMap[p.vote] || '') : '';
     const chip = p.vote ? `<span class="vote-chip ${p.role}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}</td><td><span class="badge badge-${p.role}">${roleLabel(p.role)}</span></td><td>${chip}</td></tr>`;
   }).join('');
@@ -1190,7 +1247,7 @@ function renderSummary(participants, containerId = 'master-summary') {
   const stats = []; let devHoursNum = 0;
   if (devVoters.length) {
     const { mode: modeVote, count: modeCount } = calcMode(devVoters.map((p) => p.vote));
-    const modeHoursStr = currentSettings.hourMap[modeVote] || ''; devHoursNum = parseFloat(modeHoursStr) || 0;
+    const modeHoursStr = effectiveSettings().hourMap[modeVote] || ''; devHoursNum = parseFloat(modeHoursStr) || 0;
     stats.push(`<div class="summary-stat"><div class="stat-value">${modeVote}</div><div class="stat-label">Voto Predominante Dev</div></div>`);
     if (modeHoursStr) stats.push(`<div class="summary-stat"><div class="stat-value">${modeHoursStr}</div><div class="stat-label">Horas Dev (${modeCount}/${devVoters.length})</div></div>`);
     stats.push('<div class="summary-divider"></div>');

@@ -24,6 +24,9 @@ const server = http.createServer((req, res) => {
 // clock minute, different Firebase push keys) to exercise the dedup fix
 // in loadMergedHistory() with the app's real, unmodified code.
 function installFirebaseMock() {
+  // Registro de escritas para os testes de isolamento de write-path
+  window.__fbWrites = [];
+  function recordWrite(path, data) { window.__fbWrites.push({ path, data }); }
   function emptySnap() { return { exists: () => false, val: () => null, forEach: () => {} }; }
   function historySnap() {
     const children = [
@@ -38,8 +41,12 @@ function installFirebaseMock() {
       once: async () => (isHistory ? historySnap() : emptySnap()),
       on: (event, cb) => { cb(emptySnap()); },
       off: () => {},
-      set: async () => {},
-      update: async () => {},
+      set: async (data) => { recordWrite(p, data); },
+      update: async (data) => {
+        // db.ref().update(updates) na raiz: cada chave do objeto é um path
+        if (p === undefined || p === null || p === '') Object.keys(data || {}).forEach((k) => recordWrite(k, data[k]));
+        else recordWrite(p, data);
+      },
       remove: async () => {},
       push: () => ({ key: 'mockKey' + Math.random().toString(36).slice(2) }),
       orderByChild: () => ref(p),
@@ -83,7 +90,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, 200));
     return { fired: window.__xssFired, html: document.getElementById('fibonacci-cards').innerHTML };
   }, PAYLOAD);
-  console.log('[1/3] renderFibCards escapa carta/hora maliciosa:', !t1.fired ? 'OK' : 'FALHOU');
+  console.log('[1/5] renderFibCards escapa carta/hora maliciosa:', !t1.fired ? 'OK' : 'FALHOU');
   if (t1.fired || !t1.html.includes('&lt;img')) failures.push('renderFibCards não escapou o payload');
 
   // TEST 2 — participants management tab (seen by the Scrum Master) must
@@ -95,7 +102,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, 200));
     return { fired: window.__xssFired, html: document.getElementById('participants-manage').innerHTML };
   }, PAYLOAD);
-  console.log('[2/3] renderParticipantsManage escapa nome/squad malicioso:', !t2.fired ? 'OK' : 'FALHOU');
+  console.log('[2/5] renderParticipantsManage escapa nome/squad malicioso:', !t2.fired ? 'OK' : 'FALHOU');
   if (t2.fired || !t2.html.includes('&lt;img')) failures.push('renderParticipantsManage não escapou o payload');
 
   // TEST 3 — loadMergedHistory() must not silently drop a legitimate second
@@ -106,8 +113,45 @@ async function main() {
     return { count: entries.length, devModes: entries.map((e) => e.devMode).sort() };
   });
   const t3ok = t3.count === 2 && JSON.stringify(t3.devModes) === JSON.stringify(['5', '8']);
-  console.log('[3/3] loadMergedHistory mantém as 2 reestimativas do mesmo minuto:', t3ok ? 'OK' : `FALHOU (recebeu ${t3.count})`);
+  console.log('[3/5] loadMergedHistory mantém as 2 reestimativas do mesmo minuto:', t3ok ? 'OK' : `FALHOU (recebeu ${t3.count})`);
   if (!t3ok) failures.push('loadMergedHistory descartou uma reestimativa legítima');
+
+  // TEST 4 — per-squad rendering isolation: a squad with its own override must
+  // see its own cards, and a squad without override must see the global ones.
+  const t4 = await page.evaluate(async () => {
+    currentSettings = {
+      cards: ['1'], hourMap: { '1': '2h' }, squads: ['A', 'B'],
+      squadOverrides: { A: { cards: ['99'], hourMap: { '99': '99h' } } },
+    };
+    mySquad = 'A';
+    renderFibCards();
+    const htmlA = document.getElementById('fibonacci-cards').innerHTML;
+    mySquad = 'B';
+    renderFibCards();
+    const htmlB = document.getElementById('fibonacci-cards').innerHTML;
+    return { htmlA, htmlB };
+  });
+  const t4ok = t4.htmlA.includes('>99<') && !t4.htmlA.includes('>1<')
+            && t4.htmlB.includes('>1<')  && !t4.htmlB.includes('99');
+  console.log('[4/5] renderFibCards isola cartas por squad (override vs global):', t4ok ? 'OK' : 'FALHOU');
+  if (!t4ok) failures.push('renderFibCards não isolou as cartas por squad');
+
+  // TEST 5 — write-path isolation: saving settings as a SM inside a squad must
+  // write only that squad's override, never the room-global cards/hourMap.
+  const t5 = await page.evaluate(async () => {
+    window.__fbWrites = [];
+    myRoomId = 'room1'; mySquad = 'A';
+    currentSettings = { cards: ['1', '2'], hourMap: { '1': '2h', '2': '4h' }, squads: ['A', 'B'] };
+    openSettings();
+    await saveSettings();
+    closeSettings(); // garante modal fechado mesmo se saveSettings mudar no futuro
+    return { paths: window.__fbWrites.map((w) => w.path) };
+  });
+  const t5ok = t5.paths.includes('rooms/room1/settings/squadOverrides/A')
+            && !t5.paths.includes('rooms/room1/settings/cards')
+            && !t5.paths.includes('rooms/room1/settings/hourMap');
+  console.log('[5/5] saveSettings grava só o override do squad do SM:', t5ok ? 'OK' : `FALHOU (paths: ${t5.paths.join(', ')})`);
+  if (!t5ok) failures.push('saveSettings vazou escrita para a config global da sala');
 
   if (pageErrors.length) {
     console.log('Erros de página inesperados:', pageErrors);
