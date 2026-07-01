@@ -830,7 +830,7 @@ function renderSettingsRows() {
     const hours = tempSettings.hourMap[val] || '';
     const tr = document.createElement('tr');
     tr.dataset.cardVal = val;
-    tr.innerHTML = `<td><strong>${val}</strong></td><td><input class="s-input h-edit" type="text" value="${hours}" placeholder="ex: 8h" /></td><td><label class="toggle"><input type="checkbox" class="a-toggle" ${isActive ? 'checked' : ''} /><span class="t-slider"></span></label></td><td><button class="btn-del" title="Remover">🗑</button></td>`;
+    tr.innerHTML = `<td><strong>${escHtml(val)}</strong></td><td><input class="s-input h-edit" type="text" value="${escHtml(hours)}" placeholder="ex: 8h" /></td><td><label class="toggle"><input type="checkbox" class="a-toggle" ${isActive ? 'checked' : ''} /><span class="t-slider"></span></label></td><td><button class="btn-del" title="Remover">🗑</button></td>`;
     tbody.appendChild(tr);
   });
   tbody.querySelectorAll('.btn-del').forEach((btn) => {
@@ -852,7 +852,7 @@ function renderSquadsTab() {
   if (!squads.length) { list.innerHTML = '<p style="color:var(--muted);font-size:.82rem;padding:.5rem 0">Nenhum squad cadastrado.</p>'; return; }
   squads.forEach((sq, i) => {
     const item = document.createElement('div'); item.className = 'squad-item';
-    item.innerHTML = `<span>${sq}</span><button class="btn-del" title="Remover">🗑</button>`;
+    item.innerHTML = `<span>${escHtml(sq)}</span><button class="btn-del" title="Remover">🗑</button>`;
     item.querySelector('.btn-del').addEventListener('click', () => { tempSettings.squads.splice(i, 1); renderSquadsTab(); });
     list.appendChild(item);
   });
@@ -1018,7 +1018,7 @@ function renderFibCards() {
     const hours = currentSettings.hourMap[val] || '';
     const btn = document.createElement('button');
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
-    btn.innerHTML = `<span class="fib-value">${val}</span>${hours ? `<span class="fib-hours">${hours}</span>` : ''}`;
+    btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
     container.appendChild(btn);
   });
 }
@@ -1063,7 +1063,7 @@ function renderTlFibCards() {
     const hours = currentSettings.hourMap[val] || '';
     const btn = document.createElement('button');
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
-    btn.innerHTML = `<span class="fib-value">${val}</span>${hours ? `<span class="fib-hours">${hours}</span>` : ''}`;
+    btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
     container.appendChild(btn);
   });
 }
