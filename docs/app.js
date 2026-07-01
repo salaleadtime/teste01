@@ -121,12 +121,10 @@ async function loadMergedHistory(roomId) {
     fbSnap = await Promise.race([fbPromise, timeoutPromise]);
     fbLoaded = true;
     if (fbSnap.exists()) {
-      const seen = new Set();
       fbSnap.forEach((child) => {
         const val = child.val();
         if (val._deleted) return;
-        const sig = `${val.date}|${val.story}`;
-        if (!seen.has(sig)) { seen.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
+        fbEntries.unshift({ ...val, _firebaseKey: child.key });
       });
     }
   } catch {}
@@ -168,12 +166,10 @@ async function loadMergedHistory(roomId) {
           const snap2 = await db.ref(`rooms/${roomId}/history`).orderByChild('_ts').once('value');
           if (snap2.exists()) {
             fbEntries = [];
-            const seen2 = new Set();
             snap2.forEach((child) => {
               const val = child.val();
               if (val._deleted) return;
-              const sig = `${val.date}|${val.story}`;
-              if (!seen2.has(sig)) { seen2.add(sig); fbEntries.unshift({ ...val, _firebaseKey: child.key }); }
+              fbEntries.unshift({ ...val, _firebaseKey: child.key });
             });
           }
         } catch {}
@@ -413,7 +409,7 @@ async function joinRoom(name, role, squad, roomId, smToken) {
 function listenToRoom(roomId) {
   if (_roomListenerRef) _roomListenerRef.off();
   _roomListenerRef = db.ref(`rooms/${roomId}`);
-  _roomListenerRef.on('value', (snap) => {
+  _roomListenerRef.on('value', async (snap) => {
     const data = snap.val();
     if (!data) return;
     const round    = data.round    || { active: false, story: '', revealed: false };
@@ -446,7 +442,7 @@ function listenToRoom(roomId) {
       // Grava histórico E _historySaved atomicamente num único update para fechar
       // a race condition: se o SM der F5 entre o reveal e o set do flag,
       // _historySaved chega antes e o listener não re-dispara no reload
-      saveRoundToHistory(partsWithVotes, round);
+      await saveRoundToHistory(partsWithVotes, round);
       if (!document.getElementById('master-history-panel')?.classList.contains('hidden')) renderHistory();
     }
     _lastRevealedState = round.revealed;
@@ -578,7 +574,7 @@ document.getElementById('btn-tl-filter-clear').addEventListener('click', () => {
 });
 document.getElementById('btn-tl-export-history').addEventListener('click', exportTlHistoryToExcel);
 
-function saveRoundToHistory(participants, round) {
+async function saveRoundToHistory(participants, round) {
   if (!myRoomId) return;
   const devVoters = participants.filter((p) => (p.role === 'developer' || p.role === 'tech-lead') && p.vote && p.vote !== '?');
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
@@ -604,7 +600,7 @@ function saveRoundToHistory(participants, round) {
     const updates = {};
     updates[`rooms/${myRoomId}/history/${histKey}`] = { ...entry, _ts: Date.now() };
     updates[`rooms/${myRoomId}/round/_historySaved`] = true;
-    db.ref().update(updates);
+    await db.ref().update(updates);
   } catch {}
 }
 
