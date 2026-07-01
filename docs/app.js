@@ -872,7 +872,7 @@ function renderParticipantsManage() {
   const list = document.createElement('div'); list.className = 'manage-list';
   others.forEach((p) => {
     const item = document.createElement('div'); item.className = 'manage-item';
-    item.innerHTML = `<div class="manage-item-info"><span class="p-dot ${p.role}"></span><strong>${p.name}</strong><span class="badge badge-${p.role}">${roleLabel(p.role)}</span>${p.squad ? `<span class="squad-tag">Squad ${p.squad}</span>` : ''}</div><button class="btn-kick" data-id="${p.id}">Remover</button>`;
+    item.innerHTML = `<div class="manage-item-info"><span class="p-dot ${p.role}"></span><strong>${escHtml(p.name)}</strong><span class="badge badge-${p.role}">${roleLabel(p.role)}</span>${p.squad ? `<span class="squad-tag">Squad ${escHtml(p.squad)}</span>` : ''}</div><button class="btn-kick" data-id="${p.id}">Remover</button>`;
     item.querySelector('.btn-kick').addEventListener('click', async () => {
       const targetId = p.id;
       await db.ref(`rooms/${myRoomId}/kicked/${targetId}`).set(true);
