@@ -3,10 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Planning poker colaborativo para squads de Desenvolvimento e QA: votação em pontos Fibonacci, estimativa de horas de QA, histórico e exportação." />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#1a1035" />
   <title>Estimativa Ágil</title>
-  <link rel="stylesheet" href="style.css?v=20260527j" />
+  <link rel="stylesheet" href="style.css?v=20260820a" />
 </head>
 <body>
+
+  <!-- Banner de conexão perdida (controlado por app.js) -->
+  <div id="conn-banner" class="conn-banner hidden" role="alert">
+    ⚠️ Sem conexão com o servidor — seus votos não estão sendo salvos. Reconectando…
+  </div>
 
   <!-- LOGIN -->
   <div id="screen-login" class="screen active">
@@ -18,11 +26,11 @@
         </div>
         <p class="subtitle">Estimativa colaborativa para Devs e QA</p>
         <div class="form-group">
-          <label>Seu nome</label>
-          <input id="input-name" type="text" placeholder="Digite seu nome" maxlength="30" />
+          <label for="input-name">Seu nome</label>
+          <input id="input-name" type="text" placeholder="Digite seu nome" maxlength="30" autocomplete="name" />
         </div>
         <div class="form-group" id="squad-group" style="display:none">
-          <label>Squad</label>
+          <label for="squad-select">Squad</label>
           <select id="squad-select" class="form-select">
             <option value="">— Selecione seu squad —</option>
           </select>
@@ -34,30 +42,30 @@
         <div class="form-group">
           <label>Papel</label>
           <div class="role-selector">
-            <button class="role-btn active" data-role="developer">
+            <button type="button" class="role-btn active" data-role="developer" aria-pressed="true">
               <span class="role-icon">💻</span>
               <div><span class="role-label">Desenvolvedor</span><span class="role-desc">Vota com pontos Fibonacci</span></div>
             </button>
-            <button class="role-btn" data-role="qa">
+            <button type="button" class="role-btn" data-role="qa" aria-pressed="false">
               <span class="role-icon">🔍</span>
               <div><span class="role-label">QA</span><span class="role-desc">Informa estimativa em horas</span></div>
             </button>
-            <button class="role-btn" data-role="observer">
+            <button type="button" class="role-btn" data-role="observer" aria-pressed="false">
               <span class="role-icon">👀</span>
               <div><span class="role-label">Observador</span><span class="role-desc">Acompanha sem votar</span></div>
             </button>
-            <button class="role-btn" data-role="tech-lead">
+            <button type="button" class="role-btn" data-role="tech-lead" aria-pressed="false">
               <span class="role-icon">⚡</span>
               <div><span class="role-label">Tech Lead</span><span class="role-desc">Vota e visualiza resultados completos</span></div>
             </button>
-            <button class="role-btn role-sm hidden" data-role="master">
+            <button type="button" class="role-btn role-sm hidden" data-role="master" aria-pressed="false">
               <span class="role-icon">👑</span>
               <div><span class="role-label">Scrum Master</span><span class="role-desc">Visão geral e controle da sessão</span></div>
             </button>
           </div>
         </div>
         <button id="btn-join" class="btn-primary">Entrar na sessão</button>
-        <p id="login-error" class="error hidden"></p>
+        <p id="login-error" class="error hidden" role="alert" aria-live="assertive"></p>
       </div>
     </div>
   </div>
@@ -83,8 +91,8 @@
           <p class="voting-hint">Selecione sua estimativa:</p>
           <div id="dev-timer" class="round-timer hidden"></div>
         </div>
-        <div class="fibonacci-cards" id="fibonacci-cards"></div>
-        <p id="dev-voted-msg" class="voted-msg hidden">✅ Voto registrado! Aguardando os demais...</p>
+        <div class="fibonacci-cards" id="fibonacci-cards" role="group" aria-label="Cartas de estimativa"></div>
+        <p id="dev-voted-msg" class="voted-msg hidden" role="status" aria-live="polite">✅ Voto registrado! Aguardando os demais...</p>
       </div>
       <div id="dev-reveal" class="hidden reveal-section">
         <h2 class="section-title">Resultado da Rodada</h2>
@@ -119,11 +127,12 @@
           <div id="qa-timer" class="round-timer hidden"></div>
         </div>
         <div class="qa-input-group">
-          <input id="qa-hours-input" type="number" min="0.5" step="0.5" placeholder="Ex: 4" />
+          <label for="qa-hours-input" class="sr-only">Estimativa em horas</label>
+          <input id="qa-hours-input" type="number" min="0.5" max="999" step="0.5" placeholder="Ex: 4" inputmode="decimal" />
           <span class="hours-label">horas</span>
           <button id="btn-qa-vote" class="btn-qa">Confirmar</button>
         </div>
-        <p id="qa-voted-msg" class="voted-msg hidden">✅ Estimativa registrada! Aguardando os demais...</p>
+        <p id="qa-voted-msg" class="voted-msg hidden" role="status" aria-live="polite">✅ Estimativa registrada! Aguardando os demais...</p>
       </div>
       <div id="qa-reveal" class="hidden reveal-section">
         <h2 class="section-title">Resultado da Rodada</h2>
@@ -142,6 +151,7 @@
       <div class="header-left">
         <span class="badge badge-observer">Observador</span>
         <span id="observer-name" class="user-name"></span>
+        <span id="observer-squad-tag" class="squad-tag hidden"></span>
       </div>
       <div id="observer-story" class="story-name hidden"></div>
       <button class="btn-logout" id="observer-logout">Sair</button>
@@ -193,8 +203,8 @@
           <p class="voting-hint">Selecione sua estimativa:</p>
           <div id="tl-timer" class="round-timer hidden"></div>
         </div>
-        <div class="fibonacci-cards" id="tl-fibonacci-cards"></div>
-        <p id="tl-voted-msg" class="voted-msg hidden">✅ Voto registrado! Aguardando os demais...</p>
+        <div class="fibonacci-cards" id="tl-fibonacci-cards" role="group" aria-label="Cartas de estimativa"></div>
+        <p id="tl-voted-msg" class="voted-msg hidden" role="status" aria-live="polite">✅ Voto registrado! Aguardando os demais...</p>
         <div id="tl-vote-status" class="vote-status-grid" style="margin-top:1.5rem"></div>
       </div>
       <div id="tl-reveal" class="hidden reveal-section">
@@ -223,9 +233,9 @@
           <button id="btn-tl-export-history" class="btn-export">📊 Exportar Excel</button>
         </div>
         <div class="history-filter">
-          <label class="filter-label">De:</label>
+          <label class="filter-label" for="tl-filter-from">De:</label>
           <input id="tl-filter-from" type="date" class="filter-date" />
-          <label class="filter-label">Até:</label>
+          <label class="filter-label" for="tl-filter-to">Até:</label>
           <input id="tl-filter-to" type="date" class="filter-date" />
           <button id="btn-tl-filter-history" class="btn-filter">Filtrar</button>
           <button id="btn-tl-filter-clear" class="btn-filter-clear">✕ Limpar</button>
@@ -246,6 +256,7 @@
       <div class="header-left">
         <span class="badge badge-master">Scrum Master</span>
         <span id="master-name" class="user-name"></span>
+        <span id="master-squad-tag" class="squad-tag hidden"></span>
       </div>
       <div id="master-story-display" class="story-name hidden"></div>
       <div class="header-actions">
@@ -258,7 +269,7 @@
       <div id="master-setup" class="card setup-card">
         <h2>Nova Rodada</h2>
         <div class="form-group">
-          <label>Nome da história / tarefa (opcional)</label>
+          <label for="master-story-input">Nome da história / tarefa (opcional)</label>
           <input id="master-story-input" type="text" placeholder="Ex: US-42 — Tela de login" maxlength="200" />
         </div>
         <button id="btn-start" class="btn-primary">▶ Iniciar Rodada</button>
@@ -270,7 +281,8 @@
           <button id="btn-reset" class="btn-danger">🔄 Nova Rodada</button>
           <div id="master-timer" class="round-timer hidden"></div>
         </div>
-        <div id="master-vote-status" class="vote-status-grid"></div>
+        <div id="master-vote-progress" class="vote-progress hidden"></div>
+        <div id="master-vote-status" class="vote-status-grid" aria-live="polite"></div>
         <div id="master-results" class="hidden">
           <div class="results-header">
             <h2 class="section-title">Resultado</h2>
@@ -303,9 +315,9 @@
           </div>
         </div>
         <div class="history-filter">
-          <label class="filter-label">De:</label>
+          <label class="filter-label" for="filter-from">De:</label>
           <input id="filter-from" type="date" class="filter-date" />
-          <label class="filter-label">Até:</label>
+          <label class="filter-label" for="filter-to">Até:</label>
           <input id="filter-to" type="date" class="filter-date" />
           <button id="btn-filter-history" class="btn-filter">Filtrar</button>
           <button id="btn-filter-clear" class="btn-filter-clear">✕ Limpar</button>
@@ -353,6 +365,13 @@
 
         <!-- TAB: Squads -->
         <div id="tab-squads" class="tab-content">
+          <div id="squad-scope-box" class="squad-scope-box hidden">
+            <label for="squad-scope-select">🔒 Você está atuando no squad</label>
+            <select id="squad-scope-select" class="form-select">
+              <option value="">Todos os squads (visão da sala)</option>
+            </select>
+            <p class="squad-scope-hint">Define o que você vê em participantes, votos, resultado e histórico — e qual baralho de cartas você edita.</p>
+          </div>
           <p class="modal-hint">Registre os squads. Os colaboradores poderão selecionar o seu squad ao entrar.</p>
           <div id="squads-list" class="squads-list"></div>
           <div class="add-squad-form">
@@ -456,6 +475,6 @@
   <!-- Firebase compat SDK (sem build tools) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-  <script src="app.js?v=20260701a"></script>
+  <script src="app.js?v=20260820a"></script>
 </body>
 </html>

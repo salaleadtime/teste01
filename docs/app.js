@@ -12,7 +12,9 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 
 function escHtml(str) {
-  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 const db = firebase.database();
 
@@ -47,6 +49,7 @@ let _roomListenerRef = null;
 let _kickListenerRef = null;
 let _timerInterval = null;
 let _currentTimerId = null;
+let _pendingVoters = 0;
 
 // ─── Configuração por squad ───────────────────────────────────────────────────
 // Chaves do Firebase não aceitam . # $ / [ ] — encodeURIComponent cobre tudo menos o '.'
@@ -58,6 +61,42 @@ function effectiveFor(squad) {
             : { cards: currentSettings.cards || [], hourMap: currentSettings.hourMap || {} };
 }
 const effectiveSettings = () => effectiveFor(mySquad);
+
+// ─── Isolamento por squad ─────────────────────────────────────────────────────
+// Regra: quem está dentro de um squad só enxerga o próprio squad — participantes,
+// painel de votos, resultado e histórico. Quem não tem squad (o SM dono da sala)
+// continua com a visão completa. O Scrum Master aparece para todos porque é ele
+// quem conduz a rodada.
+function scopeToSquad(participants) {
+  if (!mySquad) return participants;
+  return participants.filter((p) => p.squad === mySquad || p.role === 'master');
+}
+
+// Quantas rodadas ficaram de fora do histórico por serem de outro squad
+let _scopeHiddenCount = 0;
+
+// Filtra o histórico pelo squad ativo. Numa rodada em que mais de um squad votou,
+// também remove os votantes dos outros squads de dentro da entrada — senão o
+// nome e o voto do outro time vazariam na linha "Participantes".
+function scopeHistoryToSquad(entries) {
+  if (!mySquad) { _scopeHiddenCount = 0; return entries; }
+  const kept = entries
+    .filter((e) => Array.isArray(e.squads) && e.squads.includes(mySquad))
+    .map((e) => ({
+      ...e,
+      squads: [mySquad],
+      voters: Array.isArray(e.voters) ? e.voters.filter((v) => v.squad === mySquad) : [],
+    }));
+  _scopeHiddenCount = entries.length - kept.length;
+  return kept;
+}
+
+function scopeNoteHtml() {
+  if (!mySquad) return '';
+  return `<div class="history-scope-note">🔒 Escopo: <strong>${escHtml(mySquad)}</strong> — rodadas de outros squads não são exibidas`
+    + (_scopeHiddenCount > 0 ? ` (${_scopeHiddenCount} oculta(s) neste período)` : '')
+    + `.</div>`;
+}
 
 const urlParams  = new URLSearchParams(window.location.search);
 const urlSmToken = urlParams.get('sm');
@@ -206,10 +245,13 @@ async function loadMergedHistory(roomId) {
 
 async function loadFirebaseHistory(roomId, fromVal, toVal) {
   const all = await loadMergedHistory(roomId);
-  if (!fromVal && !toVal) return all; // 'all' = fbEntries de loadMergedHistory
+  // O escopo por squad vem ANTES do filtro de data para que a contagem de
+  // "rodadas ocultas" reflita o período que está sendo exibido.
+  let scoped = scopeHistoryToSquad(all);
+  if (!fromVal && !toVal) return scoped;
   const fromDate = fromVal ? new Date(fromVal) : null;
   const toDate   = toVal   ? new Date(toVal + 'T23:59:59') : null;
-  return all.filter((entry) => {
+  return scoped.filter((entry) => {
     const d = parseHistoryDate(entry.date);
     if (!d) return true;
     if (fromDate && d < fromDate) return false;
@@ -220,10 +262,15 @@ async function loadFirebaseHistory(roomId, fromVal, toVal) {
 
 let _currentHistoryEntries = [];
 
-function renderHistoryEntriesToContainer(container, entries, { canEdit = false } = {}) {
-  if (!entries.length) { container.innerHTML = '<p class="history-empty">Nenhuma rodada registrada ainda.</p>'; return; }
+function renderHistoryEntriesToContainer(container, entries, { canEdit = false, showScope = false } = {}) {
+  const scopeNote = showScope ? scopeNoteHtml() : '';
+  if (!entries.length) {
+    container.innerHTML = scopeNote + '<p class="history-empty">Nenhuma rodada registrada ainda para este escopo.</p>';
+    _currentHistoryEntries = [];
+    return;
+  }
   _currentHistoryEntries = entries;
-  container.innerHTML = entries.map((entry, idx) => {
+  container.innerHTML = scopeNote + entries.map((entry, idx) => {
     const stats = [];
     if (entry.devMode)  stats.push(`<span class="history-stat-chip hsc-dev">Dev: ${escHtml(entry.devMode)}${entry.devHours ? ' = ' + escHtml(entry.devHours) : ''}</span>`);
     if (entry.qaAvg)   stats.push(`<span class="history-stat-chip hsc-qa">QA média: ${escHtml(entry.qaAvg)}</span>`);
@@ -242,7 +289,7 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
       : '';
     return `<div class="history-entry">
       <div class="history-entry-header">
-        <span class="history-date">${entry.date}</span>
+        <span class="history-date">${escHtml(entry.date)}</span>
         <span class="history-story">${escHtml(entry.story)}</span>
         ${squadStr ? `<span class="squad-tag">${squadStr}</span>` : ''}
         ${actionBtns}
@@ -266,9 +313,10 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
         const entry = _currentHistoryEntries[idx];
         if (!confirm(`Excluir "${entry.story}" (${entry.date})?`)) return;
 
-        // Remove visualmente a entrada clicada (e duplicatas com mesmo date+story)
-        const sig = `${entry.date}|${entry.story}`;
-        _currentHistoryEntries = _currentHistoryEntries.filter(e => `${e.date}|${e.story}` !== sig);
+        // Remove visualmente só a entrada clicada (chave do Firebase quando existe)
+        _currentHistoryEntries = entry._firebaseKey
+          ? _currentHistoryEntries.filter(e => e._firebaseKey !== entry._firebaseKey)
+          : _currentHistoryEntries.filter(e => `${e.date}|${e.story}` !== `${entry.date}|${entry.story}`);
         const cont = btn.closest('.history-entries') || document.getElementById('history-entries');
         if (cont) renderHistoryEntriesToContainer(cont, _currentHistoryEntries, { canEdit: true });
 
@@ -276,7 +324,7 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
         try {
           await deleteHistoryEntry(entry);
         } catch {
-          alert('⚠️ Não foi possível excluir do servidor. Tente novamente.');
+          toast('Não foi possível excluir do servidor. Tente novamente.', 'error');
         }
       });
     });
@@ -284,7 +332,7 @@ function renderHistoryEntriesToContainer(container, entries, { canEdit = false }
 }
 
 async function exportHistoryDataToExcel(entries) {
-  if (!entries.length) { alert('Nenhum dado para exportar no período selecionado.'); return; }
+  if (!entries.length) { toast('Nenhum dado para exportar no período selecionado.', 'warn'); return; }
   const rows = entries.map((entry) => {
     const devCol = entry.devMode ? `${entry.devMode}${entry.devHours ? ' = ' + entry.devHours : ''}` : '—';
     const qaCol  = entry.qaAvg || '—';
@@ -304,7 +352,11 @@ async function exportHistoryDataToExcel(entries) {
 // ─── Session persistence ──────────────────────────────────────────────────────
 function saveSession() { localStorage.setItem(SESSION_KEY, JSON.stringify({ name: myName, role: myRole, squad: mySquad, smToken: urlSmToken, roomId: myRoomId })); }
 function loadSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; } }
-function clearSession() { localStorage.removeItem(SESSION_KEY); myName = null; myRole = null; myVote = null; mySquad = null; }
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+  myName = null; myRole = null; myVote = null; mySquad = null; myRoomId = null;
+  _latestParticipants = []; _currentHistoryEntries = []; _savingHistory = false; _pendingVoters = 0;
+}
 
 // Auto-join on page load
 window.addEventListener('load', async () => {
@@ -321,8 +373,8 @@ window.addEventListener('load', async () => {
 let selectedRole = 'developer';
 document.querySelectorAll('.role-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.role-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active'); selectedRole = btn.dataset.role;
+    document.querySelectorAll('.role-btn').forEach((b) => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+    btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true'); selectedRole = btn.dataset.role;
   });
 });
 document.getElementById('btn-join').addEventListener('click', doJoin);
@@ -354,13 +406,30 @@ async function doJoin() {
   if (selectedRole !== 'master' && !urlRoomId) { errEl.textContent = 'Use o link da sessão enviado pelo Scrum Master.'; errEl.classList.remove('hidden'); return; }
   if (selectedRole === 'master' && urlSmToken !== SM_TOKEN) { errEl.textContent = 'Token de Scrum Master inválido. Use o link correto.'; errEl.classList.remove('hidden'); return; }
 
+  const squadEl = document.getElementById('squad-select');
+
   if (selectedRole !== 'master') {
     const snap = await db.ref(`rooms/${urlRoomId}`).once('value');
     if (!snap.exists()) { errEl.textContent = 'Sala não encontrada. Peça o link correto ao Scrum Master.'; errEl.classList.remove('hidden'); return; }
+
+    // Squad tem que existir na sala: nem a URL nem o select podem inventar um
+    const roomSquads = (snap.val() && snap.val().settings && snap.val().settings.squads) || [];
+    const picked = (urlSquad && roomSquads.includes(urlSquad))
+      ? urlSquad
+      : ((squadEl && squadEl.value && roomSquads.includes(squadEl.value)) ? squadEl.value : null);
+    if (roomSquads.length && !picked) {
+      errEl.textContent = urlSquad
+        ? `O squad "${urlSquad}" não existe nesta sala. Selecione um squad válido.`
+        : 'Selecione o seu squad para entrar.';
+      errEl.classList.remove('hidden');
+      if (squadEl) document.getElementById('squad-group').style.display = '';
+      return;
+    }
+    mySquad = picked;
+  } else {
+    mySquad = (squadEl && squadEl.offsetParent !== null && squadEl.value) ? squadEl.value : null;
   }
 
-  const squadEl = document.getElementById('squad-select');
-  mySquad = urlSquad || ((squadEl && squadEl.offsetParent !== null && squadEl.value) ? squadEl.value : null);
   myName   = name; myRole = selectedRole;
   myRoomId = selectedRole === 'master' ? (urlRoomId || getOrCreateSmRoom()) : urlRoomId;
   // When SM joins via a link that already carries the room ID, persist it locally
@@ -436,20 +505,31 @@ function listenToRoom(roomId) {
       hasVoted: p.vote !== null && p.vote !== undefined,
       vote: round.revealed ? p.vote : null,
     }));
-    _latestParticipants = participants;
+    // Isolamento por squad: dentro de um squad, as telas mostram só o próprio time
+    const visible = scopeToSquad(participants);
+    _latestParticipants = visible;
 
-    const voters   = participants.filter((p) => p.role !== 'master' && p.role !== 'observer' && p.role !== 'tech-lead');
+    // Rehidrata o voto local a partir do Firebase (F5 no meio da rodada)
+    const myStoredVote = rawParts[clientId] ? (rawParts[clientId].vote ?? null) : null;
+    if (round.active && myVote === null && myStoredVote !== null) myVote = myStoredVote;
+
+    // Votantes e progresso também são do squad — o SM de um squad não fica
+    // esperando o squad vizinho votar para conseguir revelar a própria rodada
+    const voters   = visible.filter((p) => p.role !== 'master' && p.role !== 'observer');
     const allVoted = voters.length > 0 && voters.every((p) => p.hasVoted);
+    const votedCount = voters.filter((p) => p.hasVoted).length;
 
     // Save history on reveal (SM only, once per reveal)
     // _historySaved: flag no Firebase impede re-salvar ao recarregar
     // _savingHistory: guard local impede duplo disparo no mesmo client
     if (myRole === 'master' && round.revealed && !_lastRevealedState && !round._historySaved && !_savingHistory) {
       _savingHistory = true;
-      const partsWithVotes = Object.entries(rawParts).map(([id, p]) => ({
+      // Mesmo escopo da tela: um SM dentro de um squad grava a rodada do squad
+      // dele, não a apuração misturada com o squad vizinho
+      const partsWithVotes = scopeToSquad(Object.entries(rawParts).map(([id, p]) => ({
         id, name: p.name, role: p.role, squad: p.squad || null,
         hasVoted: p.vote !== null, vote: p.vote,
-      }));
+      })));
       // Grava histórico E _historySaved atomicamente num único update para fechar
       // a race condition: se o SM der F5 entre o reveal e o set do flag,
       // _historySaved chega antes e o listener não re-dispara no reload
@@ -459,11 +539,11 @@ function listenToRoom(roomId) {
     _lastRevealedState = round.revealed;
     if (!round.revealed) _savingHistory = false;
 
-    if (myRole === 'developer')      { updateDevView(participants, round);              updateParticipants(participants, 'dev-participants'); }
-    else if (myRole === 'qa')        { updateQaView(participants, round);               updateParticipants(participants, 'qa-participants'); }
-    else if (myRole === 'observer')  { updateObserverView(participants, round);         updateParticipants(participants, 'observer-participants'); }
-    else if (myRole === 'tech-lead') { updateTechLeadView(participants, round);         updateParticipants(participants, 'tl-participants'); }
-    else if (myRole === 'master')    { updateMasterView(participants, round, allVoted); updateParticipants(participants, 'master-participants'); }
+    if (myRole === 'developer')      { updateDevView(visible, round);              updateParticipants(visible, 'dev-participants'); }
+    else if (myRole === 'qa')        { updateQaView(visible, round);               updateParticipants(visible, 'qa-participants'); }
+    else if (myRole === 'observer')  { updateObserverView(visible, round);         updateParticipants(visible, 'observer-participants'); }
+    else if (myRole === 'tech-lead') { updateTechLeadView(visible, round);         updateParticipants(visible, 'tl-participants'); }
+    else if (myRole === 'master')    { updateMasterView(visible, round, allVoted, votedCount, voters.length); updateParticipants(visible, 'master-participants'); }
 
     const usersTab = document.getElementById('tab-users');
     if (usersTab?.classList.contains('active-tab')) renderParticipantsManage();
@@ -484,6 +564,22 @@ function listenForKick(roomId) {
   });
 }
 
+// ─── Indicador de conexão ─────────────────────────────────────────────────────
+(function watchConnection() {
+  let firstValue = true;
+  try {
+    db.ref('.info/connected').on('value', (snap) => {
+      const online = snap.val() === true;
+      // O primeiro callback quase sempre chega como false antes do handshake
+      if (firstValue && !online) { firstValue = false; return; }
+      firstValue = false;
+      const el = document.getElementById('conn-banner');
+      if (!el) return;
+      el.classList.toggle('hidden', online);
+    });
+  } catch {}
+})();
+
 // ─── Firebase actions ─────────────────────────────────────────────────────────
 // squad opcional: quando informado, limpa só os votos dos participantes daquele squad
 async function clearVotes(squad) {
@@ -503,8 +599,8 @@ document.getElementById('fibonacci-cards').addEventListener('click', (e) => {
   const card = e.target.closest('.fib-card');
   if (!card || card.disabled) return;
   myVote = card.dataset.value;
-  document.querySelectorAll('.fib-card').forEach((c) => c.classList.remove('selected'));
-  card.classList.add('selected');
+  document.querySelectorAll('#fibonacci-cards .fib-card').forEach((c) => { c.classList.remove('selected'); c.setAttribute('aria-pressed', 'false'); });
+  card.classList.add('selected'); card.setAttribute('aria-pressed', 'true');
   db.ref(`rooms/${myRoomId}/participants/${clientId}/vote`).set(myVote);
   document.getElementById('dev-voted-msg').classList.remove('hidden');
 });
@@ -514,8 +610,8 @@ document.getElementById('tl-fibonacci-cards').addEventListener('click', (e) => {
   const card = e.target.closest('.fib-card');
   if (!card || card.disabled) return;
   myVote = card.dataset.value;
-  document.querySelectorAll('#tl-fibonacci-cards .fib-card').forEach((c) => c.classList.remove('selected'));
-  card.classList.add('selected');
+  document.querySelectorAll('#tl-fibonacci-cards .fib-card').forEach((c) => { c.classList.remove('selected'); c.setAttribute('aria-pressed', 'false'); });
+  card.classList.add('selected'); card.setAttribute('aria-pressed', 'true');
   db.ref(`rooms/${myRoomId}/participants/${clientId}/vote`).set(myVote);
   document.getElementById('tl-voted-msg').classList.remove('hidden');
 });
@@ -530,8 +626,7 @@ function submitQaVote() {
   myVote = `${parsed}h`;
   db.ref(`rooms/${myRoomId}/participants/${clientId}/vote`).set(myVote);
   document.getElementById('qa-voted-msg').classList.remove('hidden');
-  document.getElementById('btn-qa-vote').disabled = true;
-  document.getElementById('qa-hours-input').disabled = true;
+  document.getElementById('btn-qa-vote').textContent = 'Atualizar';
 }
 
 // ─── Master controls ──────────────────────────────────────────────────────────
@@ -540,16 +635,29 @@ document.getElementById('btn-tl-copy-result').addEventListener('click', copyTlRe
 document.getElementById('btn-start').addEventListener('click', async () => {
   const story = document.getElementById('master-story-input').value.trim();
   await db.ref(`rooms/${myRoomId}/round`).set({ active: true, story: story || '', revealed: false, startedAt: Date.now() });
-  await clearVotes();
+  await clearVotes(mySquad || undefined);
 });
 document.getElementById('btn-reveal').addEventListener('click', () => {
+  if (_pendingVoters > 0 && !confirm(`Ainda faltam ${_pendingVoters} voto(s). Revelar mesmo assim?`)) return;
   db.ref(`rooms/${myRoomId}/round/revealed`).set(true);
 });
+
+// Barra de progresso da votacao — o SM enxerga de relance quanto falta
+function renderVoteProgress(voted, total, revealed) {
+  const el = document.getElementById('master-vote-progress');
+  if (!el) return;
+  if (!total) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  const pct = Math.round((voted / total) * 100);
+  el.innerHTML = `
+    <div class="vp-label"><span>${revealed ? 'Rodada revelada' : 'Votos recebidos'}</span><strong>${voted}/${total}</strong></div>
+    <div class="vp-track"><div class="vp-fill${voted === total ? ' vp-full' : ''}" style="width:${pct}%"></div></div>`;
+}
 document.getElementById('btn-reset').addEventListener('click', async () => {
   myVote = null;
   document.getElementById('master-story-input').value = '';
   await db.ref(`rooms/${myRoomId}/round`).set({ active: false, story: '', revealed: false });
-  await clearVotes();
+  await clearVotes(mySquad || undefined);
 });
 
 // ─── Histórico ────────────────────────────────────────────────────────────────
@@ -560,7 +668,15 @@ document.getElementById('btn-toggle-history').addEventListener('click', () => {
   document.getElementById('btn-toggle-history').textContent = open ? '✕ Fechar' : '📋 Histórico';
   if (open) renderHistory();
 });
-document.getElementById('btn-clear-history').addEventListener('click', async () => { await clearHistory(myRoomId); renderHistory(); });
+document.getElementById('btn-clear-history').addEventListener('click', async () => {
+  // Acao destrutiva e irreversivel numa sala compartilhada: exige confirmacao
+  const total = _currentHistoryEntries.length;
+  if (!confirm(`Apagar TODO o histórico desta sala${total ? ` (${total} rodada(s))` : ''}?\n\nIsso afeta todos os participantes e não pode ser desfeito.\nExporte para Excel antes se quiser guardar.`)) return;
+  await clearHistory(myRoomId);
+  _currentHistoryEntries = [];
+  renderHistory();
+  toast('Histórico apagado.');
+});
 document.getElementById('btn-filter-history').addEventListener('click', renderHistory);
 document.getElementById('btn-filter-clear').addEventListener('click', () => {
   const fromEl = document.getElementById('filter-from');
@@ -596,7 +712,7 @@ async function saveRoundToHistory(participants, round) {
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
   const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   let devMode = null, devHours = null;
-  if (devVoters.length) { const { mode } = calcMode(devVoters.map((p) => p.vote)); devMode = mode; devHours = effectiveSettings().hourMap[mode] || null; }
+  if (devVoters.length) { const { mode } = calcMode(devVoters.map((p) => p.vote)); devMode = mode; devHours = hoursForVote(mode, devVoters) || null; }
   let qaAvg = null;
   if (qaVoters.length) {
     const qaH = qaVoters.map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
@@ -621,7 +737,7 @@ async function saveRoundToHistory(participants, round) {
 }
 
 function importHistoryFromExcel() {
-  if (!myRoomId) { alert('Entre na sessão como Scrum Master antes de importar.'); return; }
+  if (!myRoomId) { toast('Entre na sessão como Scrum Master antes de importar.', 'warn'); return; }
   const input = document.createElement('input');
   input.type = 'file'; input.accept = '.xlsx,.xls';
   input.onchange = async (e) => {
@@ -644,12 +760,12 @@ function importHistoryFromExcel() {
         const qaAvg = (qaCol && qaCol !== '—') ? qaCol : null;
         return { date: dateStr, story, devMode, devHours, qaAvg, squads: [], voters: [], _imported: true };
       }).filter(Boolean);
-      if (!entries.length) { alert('Nenhuma linha válida encontrada. Verifique se o arquivo é o exportado por esta aplicação.'); return; }
+      if (!entries.length) { toast('Nenhuma linha válida encontrada. Verifique se o arquivo é o exportado por esta aplicação.', 'warn'); return; }
       // Load existing sigs to avoid duplicates
       const existing = await loadMergedHistory(myRoomId);
       const existSigs = new Set(existing.map(e => `${e.date}|${e.story}`));
       const toImport = entries.filter(e => !existSigs.has(`${e.date}|${e.story}`));
-      if (!toImport.length) { alert('Todas as entradas do arquivo já existem no histórico.'); return; }
+      if (!toImport.length) { toast('Todas as entradas do arquivo já existem no histórico.', 'warn'); return; }
       for (const entry of toImport) {
         const ts = parseHistoryDate(entry.date)?.getTime() || Date.now();
         try { await db.ref(`rooms/${myRoomId}/history`).push({ ...entry, _ts: ts }); } catch {}
@@ -657,8 +773,8 @@ function importHistoryFromExcel() {
       // Reseta flag de migração para que novas entradas importadas sejam incluídas
       try { localStorage.removeItem(migrationKey(myRoomId)); } catch {}
       renderHistory();
-      alert(`✅ ${toImport.length} entradas restauradas com sucesso!`);
-    } catch { alert('Erro ao ler o arquivo. Verifique se é um .xlsx exportado por esta aplicação.'); }
+      toast(`✅ ${toImport.length} entrada(s) restaurada(s) com sucesso!`, 'ok');
+    } catch { toast('Erro ao ler o arquivo. Verifique se é um .xlsx exportado por esta aplicação.', 'error'); }
   };
   input.click();
 }
@@ -678,7 +794,7 @@ async function renderHistory() {
   container.innerHTML = '<p class="history-empty">Carregando...</p>';
   try {
     const entries = await loadFirebaseHistory(myRoomId, from, to);
-    renderHistoryEntriesToContainer(container, entries, { canEdit: true });
+    renderHistoryEntriesToContainer(container, entries, { canEdit: true, showScope: true });
   } catch {
     container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
   }
@@ -704,7 +820,7 @@ async function renderTlHistory() {
   const to   = document.getElementById('tl-filter-to')?.value;
   try {
     const entries = await loadFirebaseHistory(myRoomId, from, to);
-    renderHistoryEntriesToContainer(container, entries);
+    renderHistoryEntriesToContainer(container, entries, { showScope: true });
   } catch {
     container.innerHTML = '<p class="history-empty">⚠️ Não foi possível carregar o histórico. Tente novamente.</p>';
   }
@@ -720,10 +836,16 @@ async function exportTlHistoryToExcel() {
 // ─── Delete history entry ─────────────────────────────────────────────────────
 async function deleteHistoryEntry(entry) {
   if (!myRoomId) return;
-  // Soft-delete: marca _deleted=true no Firebase para entradas com o mesmo date+story
-  // Isso é obrigatório: com localStorage bloqueado (Edge Tracking Prevention) a migration
-  // não consegue salvar a flag "já migrado" e roda a cada F5 — o soft-delete garante que
-  // a entrada continua visível em fbAllStories e nunca é re-importada do localStorage
+  // Soft-delete: marca _deleted=true. Isso é obrigatório: com localStorage bloqueado
+  // (Edge Tracking Prevention) a migration não consegue salvar a flag "já migrado" e
+  // roda a cada F5 — o soft-delete garante que a entrada continua visível em
+  // fbAllStories e nunca é re-importada do localStorage.
+  // Quando a entrada veio do Firebase apagamos exatamente ela pela chave; a varredura
+  // por date|story só existe como fallback para entradas legadas sem _firebaseKey.
+  if (entry._firebaseKey) {
+    await db.ref(`rooms/${myRoomId}/history/${entry._firebaseKey}`).update({ _deleted: true });
+    return;
+  }
   const sig = `${entry.date}|${entry.story}`;
   const snap = await db.ref(`rooms/${myRoomId}/history`).once('value');
   if (snap.exists()) {
@@ -758,7 +880,7 @@ async function saveEditStory() {
   if (!_editingEntry || !myRoomId) return;
   const newName = document.getElementById('edit-story-name').value.trim();
   const newNote = document.getElementById('edit-story-note').value.trim();
-  if (!newName) { alert('O nome da história não pode estar vazio.'); return; }
+  if (!newName) { toast('O nome da história não pode estar vazio.', 'warn'); return; }
 
   const updates = { story: newName };
   if (newNote) updates.note = newNote; else updates.note = null;
@@ -817,15 +939,7 @@ function openSettings() {
   // Semeia com as cartas/horas efetivas do squad do SM (a lista de squads segue global)
   const eff = effectiveFor(mySquad);
   tempSettings = { cards: [...eff.cards], hourMap: { ...eff.hourMap }, squads: [...(currentSettings.squads || [])] };
-  const squadBadge = document.getElementById('modal-squad-badge');
-  if (squadBadge) { if (mySquad) { squadBadge.textContent = `Squad ${mySquad}`; squadBadge.classList.remove('hidden'); } else squadBadge.classList.add('hidden'); }
-  const scopeHint = document.getElementById('cards-scope-hint');
-  if (scopeHint) {
-    scopeHint.textContent = (mySquad
-      ? `Estas cartas valem apenas para o squad ${mySquad}. `
-      : 'Estas cartas valem para todos os squads sem configuração própria. ')
-      + 'Ative/desative cartas e ajuste as horas correspondentes.';
-  }
+  applySquadScopeLabels();
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
   document.querySelector('.tab-btn[data-tab="tab-cards"]')?.classList.add('active');
   document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active-tab'));
@@ -866,7 +980,54 @@ function addCardRow() {
   valIn.value = ''; hIn.value = ''; renderSettingsRows();
 }
 
+// Seletor de escopo do SM: com o isolamento por squad, o SM precisa poder
+// dizer em qual squad está atuando sem ter que sair e entrar de novo.
+function renderSquadScope() {
+  const box = document.getElementById('squad-scope-box');
+  const sel = document.getElementById('squad-scope-select');
+  if (!box || !sel) return;
+  const squads = (tempSettings && tempSettings.squads) || currentSettings.squads || [];
+  if (myRole !== 'master' || !squads.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  sel.innerHTML = '<option value="">Todos os squads (visão da sala)</option>'
+    + squads.map((sq) => `<option value="${escHtml(sq)}"${sq === mySquad ? ' selected' : ''}>${escHtml(sq)}</option>`).join('');
+}
+
+document.getElementById('squad-scope-select')?.addEventListener('change', (e) => {
+  const squads = (tempSettings && tempSettings.squads) || currentSettings.squads || [];
+  const next = squads.includes(e.target.value) ? e.target.value : null;
+  mySquad = next;
+  saveSession();
+  // Reabastece a aba Cartas com o baralho do novo escopo
+  const eff = effectiveFor(mySquad);
+  if (tempSettings) { tempSettings.cards = [...eff.cards]; tempSettings.hourMap = { ...eff.hourMap }; }
+  applySquadScopeLabels();
+  renderSettingsRows();
+  // Reflete o novo escopo no que já estiver aberto
+  if (!document.getElementById('master-history-panel')?.classList.contains('hidden')) renderHistory();
+  const squadTagEl = document.getElementById('master-squad-tag');
+  if (squadTagEl) { if (mySquad) { squadTagEl.textContent = `Squad ${mySquad}`; squadTagEl.classList.remove('hidden'); } else squadTagEl.classList.add('hidden'); }
+  toast(mySquad ? `Atuando no squad ${mySquad}.` : 'Visão da sala inteira.');
+});
+
+// Badge do modal + texto de escopo da aba Cartas
+function applySquadScopeLabels() {
+  const squadBadge = document.getElementById('modal-squad-badge');
+  if (squadBadge) {
+    if (mySquad) { squadBadge.textContent = `Squad ${mySquad}`; squadBadge.classList.remove('hidden'); }
+    else squadBadge.classList.add('hidden');
+  }
+  const scopeHint = document.getElementById('cards-scope-hint');
+  if (scopeHint) {
+    scopeHint.textContent = (mySquad
+      ? `Estas cartas valem apenas para o squad ${mySquad}. `
+      : 'Estas cartas valem para todos os squads sem configuração própria. ')
+      + 'Ative/desative cartas e ajuste as horas correspondentes.';
+  }
+}
+
 function renderSquadsTab() {
+  renderSquadScope();
   const list = document.getElementById('squads-list'); if (!list) return;
   list.innerHTML = '';
   const squads = tempSettings.squads || [];
@@ -874,7 +1035,13 @@ function renderSquadsTab() {
   squads.forEach((sq, i) => {
     const item = document.createElement('div'); item.className = 'squad-item';
     item.innerHTML = `<span>${escHtml(sq)}</span><button class="btn-del" title="Remover">🗑</button>`;
-    item.querySelector('.btn-del').addEventListener('click', () => { tempSettings.squads.splice(i, 1); renderSquadsTab(); });
+    item.querySelector('.btn-del').addEventListener('click', () => {
+      const removed = tempSettings.squads[i];
+      tempSettings.squads.splice(i, 1);
+      // Sem o squad em que estava atuando, o SM volta para a visão da sala
+      if (removed === mySquad) { mySquad = null; saveSession(); applySquadScopeLabels(); renderSettingsRows(); }
+      renderSquadsTab();
+    });
     list.appendChild(item);
   });
 }
@@ -1061,7 +1228,11 @@ function updateDevView(participants, round) {
   if (!round.active) { show(waiting); hide(voting); hide(reveal); resetDevCards(); stopRoundTimer(); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('dev-results-table', participants); stopRoundTimer(); }
-  else { hide(reveal); show(voting); renderFibCards(); if (round.startedAt) startRoundTimer(round.startedAt, 'dev-timer'); }
+  else {
+    hide(reveal); show(voting); renderFibCards();
+    document.getElementById('dev-voted-msg').classList.toggle('hidden', !myVote);
+    if (round.startedAt) startRoundTimer(round.startedAt, 'dev-timer');
+  }
 }
 function renderFibCards() {
   const container = document.getElementById('fibonacci-cards'); container.innerHTML = '';
@@ -1069,7 +1240,10 @@ function renderFibCards() {
   eff.cards.forEach((val) => {
     const hours = eff.hourMap[val] || '';
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
+    btn.setAttribute('aria-pressed', String(myVote === val));
+    btn.setAttribute('aria-label', hours ? `${val} pontos, ${hours}` : `${val} pontos`);
     btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
     container.appendChild(btn);
   });
@@ -1082,12 +1256,27 @@ function updateQaView(participants, round) {
   if (!round.active) { show(waiting); hide(voting); hide(reveal); resetQaInput(); stopRoundTimer(); return; }
   hide(waiting);
   if (round.revealed) { hide(voting); show(reveal); renderSimpleTable('qa-results-table', participants); stopRoundTimer(); }
-  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); if (round.startedAt) startRoundTimer(round.startedAt, 'qa-timer'); }
+  else { hide(reveal); show(voting); if (!myVote) resetQaInput(); else restoreQaInput(); if (round.startedAt) startRoundTimer(round.startedAt, 'qa-timer'); }
 }
 function resetQaInput() {
   myVote = null;
-  document.getElementById('qa-hours-input').value = ''; document.getElementById('qa-hours-input').disabled = false;
-  document.getElementById('btn-qa-vote').disabled = false; document.getElementById('qa-voted-msg').classList.add('hidden');
+  const input = document.getElementById('qa-hours-input');
+  input.value = ''; input.disabled = false;
+  const btn = document.getElementById('btn-qa-vote');
+  btn.disabled = false; btn.textContent = 'Confirmar';
+  document.getElementById('qa-voted-msg').classList.add('hidden');
+}
+
+// Reexibe o proprio voto do QA apos F5 no meio da rodada
+function restoreQaInput() {
+  const input = document.getElementById('qa-hours-input');
+  const btn   = document.getElementById('btn-qa-vote');
+  input.disabled = false; btn.disabled = false;
+  if (myVote) {
+    if (!input.value) input.value = parseFloat(myVote) || '';
+    btn.textContent = 'Atualizar';
+    document.getElementById('qa-voted-msg').classList.remove('hidden');
+  }
 }
 
 function updateObserverView(participants, round) {
@@ -1115,7 +1304,10 @@ function renderTlFibCards() {
   eff.cards.forEach((val) => {
     const hours = eff.hourMap[val] || '';
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'fib-card' + (myVote === val ? ' selected' : ''); btn.dataset.value = val;
+    btn.setAttribute('aria-pressed', String(myVote === val));
+    btn.setAttribute('aria-label', hours ? `${val} pontos, ${hours}` : `${val} pontos`);
     btn.innerHTML = `<span class="fib-value">${escHtml(val)}</span>${hours ? `<span class="fib-hours">${escHtml(hours)}</span>` : ''}`;
     container.appendChild(btn);
   });
@@ -1135,6 +1327,7 @@ function updateTechLeadView(participants, round) {
   } else {
     hide(reveal); show(voting);
     renderTlFibCards();
+    document.getElementById('tl-voted-msg')?.classList.toggle('hidden', !myVote);
     if (round.startedAt) startRoundTimer(round.startedAt, 'tl-timer');
     const grid = document.getElementById('tl-vote-status'); if (!grid) return;
     grid.innerHTML = '';
@@ -1154,7 +1347,10 @@ async function copyTlResultsAsImage() {
     const area = document.getElementById('capture-area-tl');
     const story = document.getElementById('tl-story').textContent.trim();
     const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-    const canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+    area.classList.add('capturing');
+    let canvas;
+    try { canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true }); }
+    finally { area.classList.remove('capturing'); }
     const finalW = canvas.width; const headerH = 72;
     const final = document.createElement('canvas'); final.width = finalW; final.height = canvas.height + headerH;
     const ctx = final.getContext('2d');
@@ -1181,13 +1377,27 @@ async function copyTlResultsAsImage() {
   }
 }
 
-function updateMasterView(participants, round, allVoted) {
+function updateMasterView(participants, round, allVoted, votedCount = 0, voterTotal = 0) {
   setStoryLabel('master-story-display', round.story);
   const setup = document.getElementById('master-setup'); const active = document.getElementById('master-active'); const results = document.getElementById('master-results');
-  if (!round.active) { show(setup); hide(active); stopRoundTimer(); return; }
+  if (!round.active) {
+    show(setup); hide(active); stopRoundTimer(); renderVoteProgress(0, 0, false);
+    // Reseta o botão para não reaparecer com o rótulo da rodada anterior
+    const b = document.getElementById('btn-reveal');
+    b.textContent = '👁 Revelar Votos'; b.disabled = true; b.classList.remove('btn-reveal-partial');
+    _pendingVoters = 0;
+    return;
+  }
   hide(setup); show(active);
   if (round.startedAt) startRoundTimer(round.startedAt, 'master-timer');
-  document.getElementById('btn-reveal').disabled = !allVoted;
+  const revealBtn = document.getElementById('btn-reveal');
+  _pendingVoters = voterTotal - votedCount;
+  revealBtn.disabled = round.revealed || votedCount === 0;
+  revealBtn.textContent = round.revealed
+    ? '👁 Votos revelados'
+    : (allVoted ? '👁 Revelar Votos' : `👁 Revelar Votos (${votedCount}/${voterTotal})`);
+  revealBtn.classList.toggle('btn-reveal-partial', !allVoted && votedCount > 0 && !round.revealed);
+  renderVoteProgress(votedCount, voterTotal, round.revealed);
   const grid = document.getElementById('master-vote-status'); grid.innerHTML = '';
   participants.filter((p) => p.role !== 'master').forEach((p) => {
     const card = document.createElement('div'); card.className = 'vote-status-card';
@@ -1203,17 +1413,51 @@ function updateMasterView(participants, round, allVoted) {
   else hide(results);
 }
 
+// Moda dos votos. Em caso de empate na frequencia vence o MENOR valor
+// (comportamento historico, mantido), mas o empate e devolvido em `tied`
+// para que a UI possa avisar que a historia precisa ser rediscutida.
+// A ordem de iteracao de Object.entries nao e confiavel para chaves nao
+// numericas, entao o desempate e explicito e nunca depende de parseFloat(null).
 function calcMode(votes) {
-  const freq = {}; votes.forEach((v) => { freq[v] = (freq[v] || 0) + 1; });
-  let maxFreq = 0; let mode = null;
-  for (const [val, count] of Object.entries(freq)) { const wins = count > maxFreq || (count === maxFreq && parseFloat(val) < parseFloat(mode)); if (wins) { maxFreq = count; mode = val; } }
-  return { mode, count: maxFreq };
+  const freq = {};
+  votes.forEach((v) => { freq[v] = (freq[v] || 0) + 1; });
+  let mode = null, maxFreq = 0;
+  for (const [val, count] of Object.entries(freq)) {
+    if (mode === null || count > maxFreq) { mode = val; maxFreq = count; continue; }
+    if (count !== maxFreq) continue;
+    const a = parseFloat(val), b = parseFloat(mode);
+    const aNum = !isNaN(a), bNum = !isNaN(b);
+    // numerico vence nao-numerico ('?'); entre numericos vence o menor
+    if ((aNum && !bNum) || (aNum && bNum && a < b)) mode = val;
+  }
+  const tied = Object.entries(freq).filter(([, c]) => c === maxFreq).map(([v]) => v);
+  return { mode, count: maxFreq, tied, freq };
+}
+
+// Distancia entre o menor e o maior voto em POSICOES do baralho ativo.
+// Serve para detectar divergência alta: 5 e 8 são vizinhos (distância 1),
+// 1 e 21 estão a 5 posições de distância mesmo com baralho customizado.
+function voteSpread(votes, cards) {
+  const deck = (cards || []).filter((c) => c !== '?');
+  const idx = votes.filter((v) => v !== '?').map((v) => deck.indexOf(v)).filter((i) => i >= 0);
+  if (idx.length < 2) return 0;
+  return Math.max(...idx) - Math.min(...idx);
+}
+
+// Horas correspondentes a um voto usando o baralho do SQUAD DE QUEM VOTOU.
+// Usar effectiveSettings() aqui era um bug: o mapa de horas de quem esta
+// OLHANDO a tela (SM, TL, outro squad) nao e o mapa de quem votou, entao o
+// rodape, o resumo e o historico mostravam horas de outro squad.
+function hoursForVote(vote, voters) {
+  if (!vote) return '';
+  const voter = (voters || []).find((p) => p.vote === vote);
+  return effectiveFor(voter ? voter.squad : mySquad).hourMap[vote] || '';
 }
 
 function renderSplitResults(participants, devContainerId = 'master-dev-results', qaContainerId = 'master-qa-results') {
   const devs = participants.filter((p) => p.role === 'developer' || p.role === 'tech-lead'); const qas = participants.filter((p) => p.role === 'qa');
   const devVotes = devs.filter((p) => p.vote && p.vote !== '?').map((p) => p.vote);
-  const { mode: modeVote, count: modeCount } = devVotes.length ? calcMode(devVotes) : {};
+  const { mode: modeVote, count: modeCount, tied: modeTied } = devVotes.length ? calcMode(devVotes) : {};
   const devRows = devs.map((p) => {
     const hours = p.vote ? (effectiveFor(p.squad).hourMap[p.vote] || '') : ''; const isMod = p.vote && p.vote === modeVote;
     const chip = p.vote ? `<span class="vote-chip ${p.role} ${isMod ? 'vote-winner' : ''}"><span class="chip-points">${escHtml(p.vote)}</span>${hours ? `<span class="chip-hours">${escHtml(hours)}</span>` : ''}</span>` : `<span style="color:var(--muted)">—</span>`;
@@ -1225,7 +1469,7 @@ function renderSplitResults(participants, devContainerId = 'master-dev-results',
     const chip = p.vote ? `<span class="vote-chip qa"><span class="chip-points">${escHtml(p.vote)}</span></span>` : `<span style="color:var(--muted)">—</span>`;
     return `<tr><td>${escHtml(p.name)}</td><td>${chip}</td></tr>`;
   }).join('') || `<tr><td colspan="2" style="color:var(--muted);font-size:.85rem">Nenhum QA</td></tr>`;
-  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(effectiveSettings().hourMap[modeVote] || '?')}</strong></td></tr></tfoot>` : '';
+  const devFooter = modeVote ? `<tfoot><tr><td colspan="2" class="table-footer">Predominante: <strong>${escHtml(modeVote)}</strong> (${modeCount}/${devVotes.length}) = <strong>${escHtml(hoursForVote(modeVote, devs) || '?')}</strong>${(modeTied || []).length > 1 ? ` <span class="footer-warn">⚠️ empate com ${modeTied.filter((v) => v !== modeVote).map(escHtml).join(', ')}</span>` : ''}</td></tr></tfoot>` : '';
   const qaFooter  = avgQaH !== null ? `<tfoot><tr><td colspan="2" class="table-footer">Média QA: <strong>${avgQaH % 1 === 0 ? avgQaH : avgQaH.toFixed(1)}h</strong></td></tr></tfoot>` : '';
   document.getElementById(devContainerId).innerHTML = `<table class="results-table"><thead><tr><th>Nome</th><th>Pontos / Horas</th></tr></thead><tbody>${devRows}</tbody>${devFooter}</table>`;
   document.getElementById(qaContainerId).innerHTML  = `<table class="results-table"><thead><tr><th>Nome</th><th>Estimativa</th></tr></thead><tbody>${qaRows}</tbody>${qaFooter}</table>`;
@@ -1244,13 +1488,16 @@ function renderSummary(participants, containerId = 'master-summary') {
   const box = document.getElementById(containerId);
   const devVoters = participants.filter((p) => (p.role === 'developer' || p.role === 'tech-lead') && p.vote && p.vote !== '?');
   const qaVoters  = participants.filter((p) => p.role === 'qa' && p.vote);
-  const stats = []; let devHoursNum = 0;
+  const stats = []; let devHoursNum = 0; let consensusHtml = '';
   if (devVoters.length) {
-    const { mode: modeVote, count: modeCount } = calcMode(devVoters.map((p) => p.vote));
-    const modeHoursStr = effectiveSettings().hourMap[modeVote] || ''; devHoursNum = parseFloat(modeHoursStr) || 0;
-    stats.push(`<div class="summary-stat"><div class="stat-value">${modeVote}</div><div class="stat-label">Voto Predominante Dev</div></div>`);
-    if (modeHoursStr) stats.push(`<div class="summary-stat"><div class="stat-value">${modeHoursStr}</div><div class="stat-label">Horas Dev (${modeCount}/${devVoters.length})</div></div>`);
+    const devVotes = devVoters.map((p) => p.vote);
+    const { mode: modeVote, count: modeCount, tied } = calcMode(devVotes);
+    // Horas vem do baralho do squad de quem votou, nao do squad de quem le a tela
+    const modeHoursStr = hoursForVote(modeVote, devVoters); devHoursNum = parseFloat(modeHoursStr) || 0;
+    stats.push(`<div class="summary-stat"><div class="stat-value">${escHtml(modeVote)}</div><div class="stat-label">Voto Predominante Dev</div></div>`);
+    if (modeHoursStr) stats.push(`<div class="summary-stat"><div class="stat-value">${escHtml(modeHoursStr)}</div><div class="stat-label">Horas Dev (${modeCount}/${devVoters.length})</div></div>`);
     stats.push('<div class="summary-divider"></div>');
+    consensusHtml = consensusBanner(devVotes, tied, devVoters);
   }
   if (qaVoters.length) {
     const qaH = qaVoters.map((p) => parseFloat(p.vote)).filter((v) => !isNaN(v));
@@ -1263,7 +1510,32 @@ function renderSummary(participants, containerId = 'master-summary') {
       stats.push(`<div class="summary-stat stat-total"><div class="stat-value">${grand % 1 === 0 ? grand : grand.toFixed(1)}h</div><div class="stat-label">Total Geral Dev+QA</div></div>`);
     }
   }
-  box.innerHTML = stats.length ? `<div class="summary-box">${stats.join('')}</div>` : '';
+  box.innerHTML = (stats.length ? `<div class="summary-box">${stats.join('')}</div>` : '') + consensusHtml;
+}
+
+// ── Regra de consenso ─────────────────────────────────────────────────────────
+// Planning poker so vale se o time convergir. Tres situacoes merecem aviso:
+//  · consenso total  → segue para a proxima historia
+//  · empate na moda  → nao existe "predominante", precisa de uma nova rodada
+//  · divergência alta (>= 3 posições do baralho entre menor e maior voto)
+//    → sinal classico de que a historia nao foi entendida da mesma forma
+function consensusBanner(devVotes, tied, devVoters) {
+  const unique = [...new Set(devVotes)];
+  if (unique.length <= 1) {
+    return `<div class="consensus-note consensus-ok" role="status">✅ <strong>Consenso total</strong> — todos os desenvolvedores votaram ${escHtml(unique[0] ?? '')}.</div>`;
+  }
+  const deck = effectiveFor(devVoters[0] ? devVoters[0].squad : mySquad).cards;
+  const spread = voteSpread(devVotes, deck);
+  const msgs = [];
+  if (tied && tied.length > 1) {
+    msgs.push(`<strong>Empate</strong> entre ${tied.map(escHtml).join(' e ')} — não há voto predominante claro.`);
+  }
+  if (spread >= 3) {
+    const nums = devVotes.filter((v) => v !== '?');
+    msgs.push(`<strong>Divergência alta</strong> (${escHtml(nums.slice().sort((a, b) => parseFloat(a) - parseFloat(b))[0])} a ${escHtml(nums.slice().sort((a, b) => parseFloat(b) - parseFloat(a))[0])}) — ${spread} posições de distância no baralho.`);
+  }
+  if (!msgs.length) return '';
+  return `<div class="consensus-note consensus-warn" role="alert">⚠️ ${msgs.join(' ')} Recomendado discutir e rodar <em>Nova Rodada</em> antes de fechar a estimativa.</div>`;
 }
 
 function updateParticipants(participants, containerId) {
@@ -1291,6 +1563,24 @@ function setStoryLabel(id, story) {
   const el = document.getElementById(id); if (!el) return;
   if (story) { el.textContent = story; el.classList.remove('hidden'); } else el.classList.add('hidden');
 }
+// Aviso nao bloqueante. alert() trava a aba inteira — numa sessao ao vivo com
+// varias pessoas isso e pior do que o proprio aviso.
+let _toastTimer = null;
+function toast(msg, kind = 'info') {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast'; el.className = 'toast hidden';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.className = `toast toast-${kind}`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
 function show(el) { el?.classList.remove('hidden'); }
 function hide(el) { el?.classList.add('hidden'); }
 function roleLabel(role) { return { developer: 'Dev', qa: 'QA', master: 'SM', observer: 'Obs', 'tech-lead': 'TL' }[role] || role; }
@@ -1303,7 +1593,10 @@ async function copyResultsAsImage() {
     const area = document.getElementById('capture-area');
     const story = document.getElementById('master-story-display').textContent.trim();
     const now = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-    const canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true });
+    area.classList.add('capturing');
+    let canvas;
+    try { canvas = await html2canvas(area, { backgroundColor: '#ffffff', scale: 2, useCORS: true }); }
+    finally { area.classList.remove('capturing'); }
     const finalW = canvas.width; const headerH = 72;
     const final = document.createElement('canvas'); final.width = finalW; final.height = canvas.height + headerH;
     const ctx = final.getContext('2d');
